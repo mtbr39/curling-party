@@ -469,7 +469,12 @@ export class GameHost {
     }
     if (now < bp.at) return;
     if (this.world.stones.some(s => !s.out && Math.hypot(s.x - SHEET.SPAWN_X, s.y - bp.y) < R * 3)) return;
-    const shot = bp.shot || planShot(this.world, g.roster[pid], 1, bp.y);
+    let shot = bp.shot || planShot(this.world, g.roster[pid], 1, bp.y);
+    if (lastShot) {
+      const da = (Math.random() - 0.5) * RULES.AIM_SHAKE_ANGLE, k = 1 + (Math.random() - 0.5) * RULES.AIM_SHAKE_POWER;
+      const c = Math.cos(da), sn = Math.sin(da);
+      shot = { ...shot, vx: (shot.vx * c - shot.vy * sn) * k, vy: (shot.vx * sn + shot.vy * c) * k };
+    }
     this.store.set(`aims/${pid}`, { y: shot.y, a: shot.aimAngle, p: shot.power, s: shot.spin, d: 0 });
     this.spawn(pid, `${pid}_${g.end}_${st.done + 1}`, shot, 0);
     delete this.botPlan[pid];

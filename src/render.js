@@ -1,6 +1,6 @@
 // Canvas 描画。色数を抑えたミニマルなスタイル。
 // シートは縦向き：ワールドの x（投げる方向）が画面の下→上、y が画面の左→右。
-import { SHEET, STONE_R, PHYS, teamColor, teamName } from './config.js';
+import { SHEET, STONE_R, PHYS, RULES, teamColor, teamName } from './config.js';
 import { tk, doneCount, deadlineFor, distToTee, slotSec } from './rules.js';
 
 const R = STONE_R;
@@ -709,6 +709,42 @@ export class Renderer {
     utext(ctx, `${(a.power * 100).toFixed(1)}%`, mx + nx * 12 * u, my + ny * 12 * u);
     ctx.font = `500 ${10 * u}px ${MONO}`;
     utext(ctx, `${(a.angle * 180 / Math.PI).toFixed(2)}°${a.fine ? ' FINE' : ''}`, mx + nx * 12 * u - 14 * u, my + ny * 12 * u);
+    if (a.shake != null) {
+      // 鼓動のメーター（画面で石の右）: 針が左から右へ流れ、まん中の赤い帯（鼓動の前後）に入ると手ブレする
+      ctx.save();
+      ctx.translate(x, y + R + 40);
+      ctx.rotate(Math.PI / 2);          // 画面で横向き（+x が画面の右）
+      const bw = 104 * u, bh = 10 * u;
+      const zone = bw * (2 * RULES.AIM_SHAKE_WINDOW / RULES.AIM_BEAT_MS);
+      ctx.fillStyle = 'rgba(251,251,249,.92)';
+      ctx.fillRect(-4 * u, -bh / 2 - 22 * u, bw + 8 * u, bh + 30 * u);
+      ctx.fillStyle = 'rgba(20,20,20,.1)';
+      ctx.fillRect(0, -bh / 2, bw, bh);
+      ctx.fillStyle = a.shake > 0 ? WARN : 'rgba(228,87,46,.35)';
+      ctx.fillRect(bw / 2 - zone / 2, -bh / 2, zone, bh);
+      const p = ((a.beatPhase ?? 0) + 0.5) % 1;   // 鼓動がまん中に来るようにずらす
+      ctx.fillStyle = INK;
+      ctx.fillRect(p * bw - 1.5 * u, -bh / 2 - 4 * u, 3 * u, bh + 8 * u);
+      // ハート: 鼓動の瞬間に大きくなる
+      ctx.fillStyle = WARN;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `900 ${(12 + 8 * a.shake) * u}px ${FONT}`;
+      ctx.fillText('♥', bw / 2, -bh / 2 - 11 * u);
+      ctx.font = `700 ${9 * u}px ${MONO}`; ctx.fillStyle = 'rgba(20,20,20,.6)';
+      ctx.textAlign = 'left';
+      ctx.fillText('BEAT', 0, -bh / 2 - 11 * u);
+      ctx.restore();
+      // 狙った向き・強さ（手ブレなし）をうすい点線で
+      const bdx = Math.cos(a.baseAngle), bdy = Math.sin(a.baseAngle);
+      ctx.setLineDash([3 * u, 4 * u]);
+      ctx.strokeStyle = 'rgba(20,20,20,.45)'; ctx.lineWidth = 1.5 * u;
+      ctx.beginPath(); ctx.moveTo(x + bdx * s0, y + bdy * s0); ctx.lineTo(x + bdx * (s0 + L * a.basePower), y + bdy * (s0 + L * a.basePower)); ctx.stroke();
+      ctx.setLineDash([]);
+      const calm = a.shake < 0.35;
+      ctx.fillStyle = calm ? INK : WARN;
+      ctx.font = `900 ${13 * u}px ${MONO}`;
+      utext(ctx, calm ? '◎ 安定' : '〜 手ブレ', mx + nx * 12 * u + 18 * u, my + ny * 12 * u);
+    }
     ctx.textBaseline = 'alphabetic';
   }
 

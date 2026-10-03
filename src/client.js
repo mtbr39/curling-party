@@ -369,7 +369,8 @@ export class GameClient {
     if (!g || g.roster?.[this.pid] == null) return;
     this.canvas.setPointerCapture?.(e.pointerId);
     this.setSweep(false);
-    Object.assign(this.aim, { dragging: true, dx: 0, dy: 0, valid: false, power: 0, pressX: e.clientX, pressY: e.clientY, pressAt: this.store.serverNow() });
+    Object.assign(this.aim, { dragging: true, dx: 0, dy: 0, valid: false, power: 0, pressX: e.clientX, pressY: e.clientY, pressAt: this.store.serverNow(),
+      pressT: performance.now(), seed: [0, 1, 2, 3].map(() => Math.random() * Math.PI * 2) });
     this.px = e.clientX; this.py = e.clientY;
   }
 
@@ -390,8 +391,35 @@ export class GameClient {
     a.valid = px > 6;
     let ang = Math.atan2(py, px);
     ang = Math.max(-PHYS.MAX_ANGLE, Math.min(PHYS.MAX_ANGLE, ang));
-    a.angle = ang;
-    a.power = Math.min(1, Math.hypot(px, py) / MAX_DRAG);
+    a.baseAngle = a.angle = ang;
+    a.basePower = a.power = Math.min(1, Math.hypot(px, py) / MAX_DRAG);
+    this.applyShake();
+  }
+
+  // 自分の最後の一投（冴えわたりが出る一投）を狙っているところか
+  isMyLastShot() {
+    const g = this.game, ms = this.myState;
+    return !this.practice && !!g && !!ms?.ok && isLastShot(g, this.pid, ms.done);
+  }
+
+  // 最後の一投の手ブレ: 狙い（base）のまわりで向きと強さが揺れる。離した瞬間の値で投げる
+  // 心臓は AIM_BEAT_MS ごとに鳴り（押してから半分たったところが最初）、その前後 AIM_SHAKE_WINDOW の間だけ揺れる
+  applyShake() {
+    const a = this.aim;
+    if (!a.dragging || !a.valid || a.baseAngle == null || !this.isMyLastShot()) { a.shake = null; return; }
+    const t = performance.now();
+    const hold = (t - (a.pressT || t)) / 1000;
+    const P = RULES.AIM_BEAT_MS, W = RULES.AIM_SHAKE_WINDOW;
+    const ph = (((t - (a.pressT || t) - P / 2) % P) + P) % P;   // 鼓動からの経過 ms（0 = 鼓動の瞬間）
+    const near = Math.min(ph, P - ph);                         // いちばん近い鼓動までの ms
+    const amp = near < W ? Math.cos(near / W * Math.PI / 2) : 0;   // 鼓動の瞬間が最大、窓の外は 0
+    a.beatPhase = ph / P;
+    const [s1, s2, s3, s4] = a.seed || [0, 1, 2, 3];
+    const na = Math.sin(hold * 7.3 + s1) * 0.6 + Math.sin(hold * 12.9 + s2) * 0.4;
+    const np = Math.sin(hold * 5.1 + s3) * 0.6 + Math.sin(hold * 10.7 + s4) * 0.4;
+    a.shake = amp;
+    a.angle = Math.max(-PHYS.MAX_ANGLE, Math.min(PHYS.MAX_ANGLE, a.baseAngle + na * amp * RULES.AIM_SHAKE_ANGLE));
+    a.power = Math.max(0, Math.min(1, a.basePower + np * amp * RULES.AIM_SHAKE_POWER));
   }
 
   adjustSpin(d, fine) {
@@ -509,6 +537,7 @@ export class GameClient {
     for (const id of this.trails.keys()) if (!this.world.get(id)) this.trails.delete(id);
 
     this.myState = g ? throwState(g, this.pid, this.now, this.pending.length) : null;
+    this.applyShake();
     this.updateShots();
     this.updatePredictions();
     this.updateLastShotPreviews();
@@ -768,19 +797,24 @@ export class GameClient {
     const g = this.game;
     const hp = g?.hammerPid;
     let hush = false;
+    let beatLeft = null;   // 心臓の音を鳴らすときの残り時間の割合
     if (g?.phase === 'play' && hp && g.hammerUnlockAt) {
       const thrown = doneCount(g, hp) + (hp === this.pid ? this.pending.length : 0) >= g.stones;
       const stone = this.world.get(`${hp}_${g.end}_${g.stones}`);
       hush = !(thrown && stone && this.world.isSettled());   // 石がまだ届いていないうちは戻さない
       // 投げるまでは心臓の音「ドックン」。残り時間が減るほど速くなる
-      if (!thrown) {
-        const t = performance.now();
-        if (t >= (this.nextBeat || 0)) {
-          sfx.heart();
-          const left = Math.max(0, Math.min(1, (deadlineFor(g, hp, g.stones) - this.now) / (slotSec(g, hp, g.stones) * 1000)));
-          this.nextBeat = t + 520 + 480 * left;   // 約60 → 115 拍/分
-        }
-      }
+      if (!thrown) beatLeft = Math.max(0, Math.min(1, (deadlineFor(g, hp, g.stones) - this.now) / (slotSec(g, hp, g.stones) * 1000)));
+    }
+    const t = performance.now();
+    const a = this.aim;
+    if (a.dragging && this.isMyLastShot()) {
+      // 自分の最後の一投を引いている間は、手ブレと同じリズム（AIM_BEAT_MS ごと）で鳴らす
+      if (a.beatAt == null || a.beatFor !== a.pressT) { a.beatFor = a.pressT; a.beatAt = a.pressT + RULES.AIM_BEAT_MS / 2; }
+      if (t >= a.beatAt) { sfx.heart(); a.beatAt += RULES.AIM_BEAT_MS; }
+      this.nextBeat = t + 400;   // 離したあと、ハンマーの鼓動がすぐ重ならないように
+    } else if (beatLeft != null && t >= (this.nextBeat || 0)) {
+      sfx.heart();
+      this.nextBeat = t + 520 + 480 * beatLeft;   // 約60 → 115 拍/分
     }
     if (!this.practice) setBgmHush(hush);
     const ts = this.host ? this.host.timeScale : (this.world.isSettled() ? 1 : this.snapScale);
