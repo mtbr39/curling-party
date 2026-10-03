@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Curling Party</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22none%22 stroke=%22%23141414%22 stroke-width=%223%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%224%22 fill=%22%23E4572E%22/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,600;0,800;0,900;1,800;1,900&family=JetBrains+Mono:wght@400;500;600;700;800&family=M+PLUS+1p:wght@500;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- タイトル -->
+<section id="title" class="screen">
+  <div class="title-wrap">
+    <div class="logo">
+      <svg viewBox="0 0 120 120" class="logo-mark" aria-hidden="true">
+        <circle cx="60" cy="60" r="54"/><circle cx="60" cy="60" r="36"/><circle cx="60" cy="60" r="18"/>
+        <circle cx="60" cy="60" r="4" class="fill"/>
+      </svg>
+      <h1>CURLING<br><span>PARTY</span></h1>
+    </div>
+    <p class="lead">みんな同時に投げる、パーティ系カーリング。</p>
+
+    <label class="field">
+      <span>NAME</span>
+      <input id="name" maxlength="12" placeholder="なまえ" autocomplete="off">
+    </label>
+
+    <div class="card">
+      <button id="btn-create" class="primary wide">ルームを作る</button>
+      <div class="join">
+        <input id="code" maxlength="4" placeholder="CODE" autocomplete="off">
+        <button id="btn-join">参加</button>
+      </div>
+      <p id="online-note" class="note" hidden>
+        オンライン対戦には Firebase の設定が必要です（<code>src/firebase-config.js</code>）。
+      </p>
+    </div>
+    <button id="btn-local" class="ghost wide">オフラインで練習（CPU対戦）</button>
+
+    <details class="howto">
+      <summary>あそびかた</summary>
+      <ul>
+        <li><b>全チーム同時に投げる。</b>各プレイヤーは1エンドに石を4つ、好きなタイミングで投げられる。</li>
+        <li><b>期限がある。</b>決まった秒数（標準30秒）ごとに1投ずつ投げないと石が1つ消える。チームごとにタイマーが少しずつずれてスタート。</li>
+        <li><b>最後の一投（ハンマー）</b>はエンドごとに決まったチームだけ。他の全員が投げ終わってから投げる。ハンマーのチームが得点できなければ、次のエンドもそのチームが持つ。</li>
+        <li><b>操作</b>：手前から奥へ投げる。マウス左右で位置 → 押して下へ引いて離すと投球（引く長さ＝強さ、角度＝向き、Shiftで精密）。強さ20%でハウスの手前、90%でバックライン越え。ホイール / Q E で回転。Space 長押しでスイープ（滑りやすく、曲がりにくくなる）。</li>
+        <li><b>得点</b>：ハウスの中心に一番近い石のチームが、他チームの一番近い石より内側にある石の数だけ得点。</li>
+      </ul>
+    </details>
+  </div>
+</section>
+
+<!-- ロビー -->
+<section id="lobby" class="screen" hidden>
+  <header class="bar">
+    <div class="room">ROOM <b id="room-code">----</b> <button id="btn-copy" class="mini">招待リンク</button></div>
+    <button id="btn-leave" class="mini ghost">退出</button>
+  </header>
+  <div class="lobby-grid">
+    <div>
+      <h2>PLAYERS</h2>
+      <div id="teams" class="teams"></div>
+      <div class="row">
+        <button id="btn-addbot" class="mini">＋ CPU</button>
+        <button id="btn-rmbot" class="mini ghost">− CPU</button>
+      </div>
+    </div>
+    <div>
+      <h2>SETTINGS</h2>
+      <div id="settings" class="settings">
+        <label><span>モード</span>
+          <select id="s-mode"><option value="solo">1チーム1人</option><option value="team">チーム戦</option></select></label>
+        <label id="row-teams"><span>チーム数</span>
+          <select id="s-teams"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+        <label><span>1人あたりの石</span>
+          <select id="s-stones"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select></label>
+        <label><span>エンド数</span>
+          <select id="s-ends"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option></select></label>
+        <label><span>1投ごとの期限（秒）</span>
+          <select id="s-interval"><option>5</option><option>10</option><option>15</option><option>20</option><option>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select></label>
+        <label><span>石の速さ</span>
+          <select id="s-speed"><option value="0.5">×0.5 ゆっくり</option><option value="0.75">×0.75</option><option value="1">×1 ふつう</option><option value="1.25">×1.25</option><option value="1.5">×1.5</option><option value="2">×2 速い</option></select></label>
+        <label><span>チーム間のずれ（秒）</span>
+          <select id="s-stagger"><option value="auto">自動</option><option>0</option><option>2</option><option>3</option><option>5</option><option>7</option><option>10</option><option>15</option><option>20</option><option>30</option></select></label>
+        <p id="stagger-note" class="note"></p>
+      </div>
+      <div id="lobby-actions"><button id="btn-start" class="primary wide">START</button></div>
+      <p id="lobby-wait" class="muted">ホストがゲームを開始するのを待っています…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ゲーム -->
+<section id="game" class="screen" hidden>
+  <canvas id="cv"></canvas>
+  <div class="g-top">
+    <span id="g-room"></span>
+    <button id="g-mute" class="mini ghost">SOUND ON</button>
+    <button id="g-leave" class="mini ghost">退出</button>
+  </div>
+  <div id="final" class="final" hidden><div id="final-body" class="final-card"></div></div>
+</section>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

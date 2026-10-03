@@ -1,0 +1,9 @@
+{
+  "name": "curling-party",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes http-server . -c-1 -p 8080 -o"
+  }
+}
