@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22none%22 stroke=%22%23141414%22 stroke-width=%223%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%224%22 fill=%22%23E4572E%22/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,600;0,800;0,900;1,800;1,900&family=JetBrains+Mono:wght@400;500;600;700;800&family=M+PLUS+1p:wght@500;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,600;0,800;0,900;1,800;1,900&family=JetBrains+Mono:wght@400;500;600;700;800&family=M+PLUS+1p:wght@500;700;800;900&family=Silkscreen&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -43,6 +43,7 @@
 
     <button class="ghost wide" data-manual>説明書 ― あそびかたとカーリングのこと</button>
   </div>
+  <footer class="credit"><span class="cr-sm">made by</span><span class="cr-name">Kiahi</span><span class="cr-sm">with Claude Code</span></footer>
 </section>
 
 <!-- ロビー -->
@@ -51,6 +52,8 @@
     <div class="room">ROOM <b id="room-code">----</b> <button id="btn-copy" class="mini">招待リンク</button></div>
     <div class="row"><button class="mini ghost" data-manual>説明書</button><button id="btn-leave" class="mini ghost">退出</button></div>
   </header>
+  <div class="lobby-body">
+  <div class="lobby-practice"><canvas id="pcv"></canvas></div>
   <div class="lobby-grid">
     <div>
       <h2>PLAYERS</h2>
@@ -80,6 +83,7 @@
       <div id="lobby-actions"><button id="btn-start" class="primary wide">START</button></div>
       <p id="lobby-wait" class="muted">ホストがゲームを開始するのを待っています…</p>
     </div>
+  </div>
   </div>
 </section>
 

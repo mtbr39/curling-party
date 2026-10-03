@@ -64,6 +64,12 @@ code { font-family: var(--mono); background: rgba(0,0,0,.06); padding: 1px 4px; 
 h1 { font: italic 900 46px/0.9 var(--sans); margin: 0; letter-spacing: -.02em; }
 h1 span { color: var(--paper); -webkit-text-stroke: 2px var(--ink); }
 .lead { margin: 0; font: 500 14px var(--mono); color: var(--mute); }
+/* タイトル画面のフッター: made by Kiahi with Claude Code（made by と with Claude Code はドット文字、名前だけロゴと同じ書体） */
+#title:not([hidden]) { display: flex; flex-direction: column; }
+#title .title-wrap { width: 100%; }
+.credit { margin-top: auto; padding: 18px 16px 22px; display: flex; justify-content: center; align-items: baseline; flex-wrap: wrap; gap: 0 8px; border-top: 1px solid var(--line); }
+.credit .cr-sm { font: 400 11px/1 "Silkscreen", var(--mono); letter-spacing: .06em; color: var(--mute); }
+.credit .cr-name { font: italic 900 18px/1 var(--sans); letter-spacing: -.01em; color: var(--ink); }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field span { font: 700 11px var(--mono); letter-spacing: .1em; }
 .card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ink); background: var(--paper); }
@@ -110,8 +116,25 @@ h1 span { color: var(--paper); -webkit-text-stroke: 2px var(--ink); }
 .bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 2px solid var(--ink); background: var(--paper); }
 .room { font: 600 13px var(--mono); display: flex; align-items: center; gap: 10px; }
 .room b { font: 900 26px var(--mono); letter-spacing: .2em; }
-.lobby-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 36px; padding: 28px 24px; max-width: 1080px; margin: 0 auto; }
-@media (max-width: 760px) { .lobby-grid { grid-template-columns: 1fr; gap: 20px; padding: 20px 16px; } }
+/* 左に練習シート、右にプレイヤーと設定 */
+#lobby:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+.lobby-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
+.lobby-practice { position: relative; min-height: 0; border-right: 2px solid var(--ink); }
+#pcv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.lobby-grid { display: flex; flex-direction: column; gap: 28px; padding: 24px; overflow-y: auto; min-height: 0; }
+@media (max-width: 860px) {
+  #lobby:not([hidden]) { display: block; overflow: auto; }
+  .lobby-body { display: block; }
+  .lobby-practice { height: 70vh; border-right: 0; border-bottom: 2px solid var(--ink); }
+  .lobby-grid { gap: 20px; padding: 20px 16px; overflow: visible; }
+}
+@media (max-width: 520px) {
+  .bar { padding: 10px 16px; gap: 8px; }
+  .room { gap: 8px; }
+  .room b { font-size: 20px; letter-spacing: .12em; }
+  .bar button { white-space: nowrap; }
+  .bar .row { flex-wrap: nowrap; gap: 6px; }
+}
 h2 { font: 800 12px var(--mono); letter-spacing: .2em; margin: 0 0 12px; }
 .teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .team { border: 2px solid var(--ink); background: var(--paper); }

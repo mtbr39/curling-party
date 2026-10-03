@@ -10,9 +10,10 @@ import { planShot } from './bot.js';
 const R = STONE_R;
 
 export class GameHost {
-  constructor(store, myPid) {
+  constructor(store, myPid, { practice = false } = {}) {
     this.store = store;
     this.pid = myPid;
+    this.practice = practice;   // ロビーの練習シート（ハンマーなし）
     this.world = new World();
     this.meta = null;
     this.players = {};
@@ -72,9 +73,37 @@ export class GameHost {
     }
   }
 
+  // ------------------------------------------------------------ 練習シート
+  // ロビーにいる人をそのまま投げられる人にする（途中で来た人・チームを変えた人もすぐ反映）
+  syncPractice() {
+    const roster = {};
+    for (const [pid, p] of Object.entries(this.players)) if (p.team != null && !p.bot) roster[pid] = p.team;
+    if (!Object.keys(roster).length) return;
+    if (!this.game) { this.startGame(); return; }
+    const g = this.game;
+    if (JSON.stringify(g.roster) === JSON.stringify(roster)) return;
+    g.roster = roster;
+    g.teams = [...new Set(Object.values(roster))].sort((a, b) => a - b);
+    g.offsets = Object.fromEntries(g.teams.map(t => [tk(t), 0]));
+    for (const pid of Object.keys(roster)) g.stats[pid] ||= { t: 0, l: 0 };
+    this.writeGame();
+  }
+
+  // 練習シートの石は増えつづけるので、止まっている古い石から片づける
+  trimPractice() {
+    const MAX = 36;
+    const st = this.world.stones;
+    if (st.length <= MAX) return;
+    const old = new Set(st.filter(s => !s.moving).sort((a, b) => (a.born || 0) - (b.born || 0)).slice(0, st.length - MAX));
+    if (!old.size) return;
+    this.world.stones = st.filter(s => !old.has(s));
+    this.dirty = true;
+  }
+
   // ------------------------------------------------------------ チーム割り当て
   assignTeams() {
     if (!this.meta) return;
+    if (this.practice) { this.syncPractice(); return; }   // 練習シートのチームはルーム側で決まる
     const set = this.settings;
     const key = set.mode + ':' + set.teamCount;
     const force = this.lastModeKey != null && this.lastModeKey !== key && this.meta.status === 'lobby';
@@ -169,8 +198,8 @@ export class GameHost {
     for (const t of teams) if (g.scores[tk(t)] == null) g.scores[tk(t)] = 0;
     Object.assign(g, {
       roster, teams, order, offsets, stats,
-      hammerPid: members.length ? members[(g.end - 1) % members.length] : null,
-      endStartAt: this.now() + RULES.COUNTDOWN,
+      hammerPid: members.length && !this.practice ? members[(g.end - 1) % members.length] : null,
+      endStartAt: this.now() + (this.practice ? 0 : RULES.COUNTDOWN),
       hammerUnlockAt: 0, phase: 'play', result: null, nextAt: 0, saved: 0, savedRound: 0,
     });
     this.world.clear();
@@ -294,6 +323,7 @@ export class GameHost {
 
     this.updateSlow(dt);
     this.world.advance(dt * this.timeScale);
+    if (this.practice) this.trimPractice();
 
     if (g && g.status === 'playing') {
       if (g.phase === 'play') this.tickPlay(now);
@@ -389,6 +419,7 @@ export class GameHost {
   // いちばん早い期限のチームがちょうど持ち時間いっぱいから始まるようにずらすので、だれの持ち時間も interval を下回らない
   skipIdle(now) {
     const g = this.game;
+    if (this.practice) return;   // 練習シートは期限なし
     const ids = Object.keys(g.roster);
     if (!ids.length) return;
     const k = Math.min(...ids.map(pid => doneCount(g, pid)));

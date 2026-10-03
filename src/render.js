@@ -49,8 +49,10 @@ export class Renderer {
     this.resize();
     this._onResize = () => this.resize();
     addEventListener('resize', this._onResize);
+    this._ro = typeof ResizeObserver === 'function' ? new ResizeObserver(this._onResize) : null;
+    this._ro?.observe(canvas);
   }
-  dispose() { removeEventListener('resize', this._onResize); }
+  dispose() { removeEventListener('resize', this._onResize); this._ro?.disconnect(); }
 
   resize() {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -506,7 +508,7 @@ export class Renderer {
       ctx.textBaseline = 'middle';
       if (!f.away) this.drawName(ctx, c, pid, team, nameX, y);
 
-      if (play && g.roster?.[pid] != null) {
+      if (play && g.roster?.[pid] != null && !c.practice) {
         const done = doneCount(g, pid) + (me ? c.pendingCount : 0);
         const N = g.stones;
         const per = LANE.perRow, gap = LANE.dotGap * u;
@@ -520,7 +522,7 @@ export class Renderer {
             ctx.beginPath(); ctx.arc(dx, dy, (LANE.dot + 2.5) * u, 0, Math.PI * 2); ctx.stroke();
           }
         }
-        if (done < N) {
+        if (done < N && !c.practice) {
           const dl = deadlineFor(g, pid, done + 1);
           let frac = 1, label;
           if (dl === Infinity) label = 'H';
@@ -740,6 +742,14 @@ export class Renderer {
   drawScores(ctx, c, x0, y0, w, horizontal) {
     const g = c.game;
     if (!g) return;
+    if (c.practice) {
+      ctx.textAlign = 'left'; ctx.fillStyle = INK;
+      ctx.font = `italic 900 22px ${FONT}`;
+      ctx.fillText('PRACTICE', x0, y0 + 6);
+      ctx.font = `500 11px ${MONO}`; ctx.fillStyle = 'rgba(20,20,20,.55)';
+      ctx.fillText('ゲームが始まるまで、みんなで自由に投げて練習（点数なし・何投でも）', x0, y0 + 26);
+      return;
+    }
     ctx.textAlign = 'left';
     ctx.fillStyle = INK;
     ctx.font = `800 13px ${MONO}`;
@@ -868,11 +878,10 @@ export class Renderer {
     const done = thrown + st.l;
     const compact = !this.land;
 
-    // 石
-    ctx.fillStyle = INK; ctx.font = `700 11px ${MONO}`;
-    ctx.fillText('STONES', x0, y0);
+    // 石（練習シートは無限なので出さない）
     const sr = compact ? 6 : 8, sg = compact ? 17 : 22;
-    for (let i = 0; i < N; i++) {
+    if (!c.practice) { ctx.fillStyle = INK; ctx.font = `700 11px ${MONO}`; ctx.fillText('STONES', x0, y0); }
+    for (let i = 0; i < (c.practice ? 0 : N); i++) {
       const cx = x0 + sr + i * sg, cy = y0 + 18;
       ctx.beginPath(); ctx.arc(cx, cy, sr, 0, Math.PI * 2);
       if (i < thrown) { ctx.strokeStyle = 'rgba(20,20,20,.3)'; ctx.lineWidth = 1.5; ctx.stroke(); }
@@ -894,13 +903,14 @@ export class Renderer {
     else if (ms?.why === 'countdown') text = 'READY';
     else if (done >= N) text = 'DONE';
     else if (ms?.why === 'hammer') text = 'HAMMER 待機';
+    else if (c.practice) { text = 'FREE'; frac = 1; }   // 練習シートは期限なし
     else {
       const rem = (deadlineFor(g, c.pid, done + 1) - c.now) / 1000;
       frac = Math.max(0, Math.min(1, rem / slotSec(g, c.pid, done + 1)));
       warn = rem < 3;
       text = `${Math.max(0, rem).toFixed(1)}s`;
     }
-    const tx = compact ? x0 + Math.max(N * sg, 70) + 18 : x0;
+    const tx = compact ? x0 + (c.practice ? 0 : Math.max(N * sg, 70) + 18) : x0;
     const ty = compact ? y0 : y0 + 62;
     ctx.fillStyle = INK; ctx.font = `700 11px ${MONO}`;
     ctx.fillText('NEXT', tx, ty);
@@ -946,8 +956,7 @@ export class Renderer {
   drawHelp(ctx, x, y) {
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(20,20,20,.55)';
-    ctx.font = `500 11px ${MONO}`;
-    [
+    const lines = [
       '位置     マウス左右 ／ A D で微調整',
       '投げる   押して下へ引き、離す',
       '         （Shift: 精密）',
@@ -955,7 +964,14 @@ export class Renderer {
       'スイープ Space 長押し',
       'キャンセル 右クリック ／ Esc（引いている途中）',
       '軌跡     T で表示／非表示',
-    ].forEach((t, i) => ctx.fillText(t, x, y + i * 18));
+    ];
+    // 右のパネルが狭いときは、はみ出さないように文字を小さくする
+    ctx.font = `500 11px ${MONO}`;
+    const avail = this.w - x - 12;
+    const widest = Math.max(...lines.map(t => ctx.measureText(t).width));
+    const size = Math.max(8, Math.min(11, 11 * avail / widest));
+    ctx.font = `500 ${size}px ${MONO}`;
+    lines.forEach((t, i) => ctx.fillText(t, x, y + i * size * 1.65));
   }
 
   // 技の演出: シートの少し横に出し、対象の石と線で結ぶ
@@ -1098,11 +1114,13 @@ export class Renderer {
       ctx.fillText(`END ${g.end}`, cx, cy - 70);
       ctx.font = `italic 900 110px ${FONT}`;
       ctx.fillText(rem > 0.5 ? String(Math.ceil(rem - 0.5)) : 'GO', cx, cy + 30);
-      ctx.font = `600 12px ${MONO}`;
-      const hn = c.teamLabel(g.hammer), pn = c.hammerName();
-      ctx.fillText(`HAMMER（最後の一投）`, cx, cy + 66);
-      ctx.font = `800 14px ${MONO}`;
-      ctx.fillText(`${hn}${pn !== hn ? ' · ' + pn : ''}`, cx, cy + 86);
+      if (g.hammerPid) {   // 練習シートにはハンマーがない
+        ctx.font = `600 12px ${MONO}`;
+        const hn = c.teamLabel(g.hammer), pn = c.hammerName();
+        ctx.fillText(`HAMMER（最後の一投）`, cx, cy + 66);
+        ctx.font = `800 14px ${MONO}`;
+        ctx.fillText(`${hn}${pn !== hn ? ' · ' + pn : ''}`, cx, cy + 86);
+      }
     }
     if (g.phase === 'result' && g.result) {
       const r = g.result;

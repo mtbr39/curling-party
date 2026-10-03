@@ -14,7 +14,8 @@ const FIG_X = SHEET.SPAWN_X - 50;
 const WALK_SPEED = 240;   // 投げ終わった人がカーソルへ歩く速さ（ワールド単位/秒）
 
 export class GameClient {
-  constructor({ store, pid, canvas, onFinal }) {
+  constructor({ store, pid, canvas, onFinal, practice = false }) {
+    this.practice = practice;   // ロビーの練習シート（BGM は触らない）
     this.store = store;
     this.pid = pid;
     this.canvas = canvas;
@@ -92,8 +93,7 @@ export class GameClient {
 
   destroy() {
     this.dead = true;
-    if (this.inSlow) setBgmSlow(false);
-    setBgmHush(false);
+    if (!this.practice) { if (this.inSlow) setBgmSlow(false); setBgmHush(false); }
     cancelAnimationFrame(this.raf);
     for (const u of this.unsubs) try { u(); } catch {}
     this.unbindInput();
@@ -529,7 +529,7 @@ export class GameClient {
       if (sec > 0) return;
     }
     // BGM は「3, 2, 1, GO」の GO から（途中から入った人もここで流れ始める。流れていれば何もしない）
-    startBgm();
+    if (!this.practice) startBgm();
     if (this.now < g.endStartAt) return;
     const ms = this.myState;
     if (ms?.ok && ms.deadline !== Infinity) {
@@ -686,8 +686,10 @@ export class GameClient {
   walkTarget(pid) {
     const g = this.game;
     if (!g || g.phase !== 'play' || g.roster?.[pid] == null) return null;
-    if (pid === this.pid) return this.myState?.why === 'done' && this.cursor ? this.cursor : null;
     const w = this.aims[pid]?.w;
+    // 練習シートでは、いつでもカーソルについて歩く
+    if (this.practice) return pid === this.pid ? (this.cursor || null) : (w ? { x: w[0], y: w[1] } : null);
+    if (pid === this.pid) return this.myState?.why === 'done' && this.cursor ? this.cursor : null;
     // 前のエンドの行き先が残っていても、そのエンドを投げ終えるまでは歩かない
     return w && doneCount(g, pid) >= g.stones ? { x: w[0], y: w[1] } : null;
   }
@@ -780,13 +782,13 @@ export class GameClient {
         }
       }
     }
-    setBgmHush(hush);
+    if (!this.practice) setBgmHush(hush);
     const ts = this.host ? this.host.timeScale : (this.world.isSettled() ? 1 : this.snapScale);
     this.timeScale = ts;
     const want = Math.max(0, Math.min(1, (1 - ts) / 0.7));
     this.slowAmt += (want - this.slowAmt) * (1 - Math.exp(-dt * 8));
-    if (ts < 0.6 && !this.inSlow) { this.inSlow = true; sfx.slowIn(); setBgmSlow(true); }
-    else if (ts > 0.9 && this.inSlow) { this.inSlow = false; sfx.slowOut(); setBgmSlow(false); }
+    if (ts < 0.6 && !this.inSlow) { this.inSlow = true; sfx.slowIn(); if (!this.practice) setBgmSlow(true); }
+    else if (ts > 0.9 && this.inSlow) { this.inSlow = false; sfx.slowOut(); if (!this.practice) setBgmSlow(false); }
   }
 
   updateFx(dt) {

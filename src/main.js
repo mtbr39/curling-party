@@ -6,6 +6,7 @@ import { GameClient } from './client.js';
 import { staggerSec, tk } from './rules.js';
 import { unlockAudio, setMuted, isMuted, setVolume, getVolume } from './sfx.js';
 import { playFinale } from './finale.js';
+import { startPractice } from './practice.js';
 import { fadeOutBgm, stopBgm, setBgmVolume, getBgmVolume, setBgmMuted, onBgmState } from './bgm.js';
 
 const $ = s => document.querySelector(s);
@@ -20,6 +21,7 @@ const pid = (() => {
 const S = {
   store: null, code: null, online: false,
   finale: null,   // 結果発表の演出 { key, stop }
+  practice: null, // ロビーの練習シート { stop }
   meta: null, players: {}, host: null, client: null, unsubs: [],
 };
 
@@ -129,6 +131,7 @@ async function leaveRoom() {
   if (!st) return;
   try { await st.remove(`players/${pid}`); } catch {}
   stopGame();
+  stopPractice();
   S.host?.stop(); S.host = null;
   for (const u of S.unsubs) try { u(); } catch {}
   S.unsubs = [];
@@ -164,9 +167,35 @@ function onRoomChange() {
     stopGame();
     show('lobby');
     renderLobby();
+    runPractice();
   } else {
+    stopPractice();
     startGameView();
   }
+}
+
+// ロビーにいる間は練習シートを動かす（ルームのみんなで共有。ホストが石を動かす）
+let practiceRun = 0;   // 起動のたびに増やす。起動中に止められたら古い起動は捨てる
+async function runPractice() {
+  const amHost = S.meta?.hostId === pid;
+  if (S.practice && S.practice.amHost === amHost) {
+    if (amHost) S.practice.setPlayers?.(S.players);
+    return;
+  }
+  stopPractice();
+  const run = ++practiceRun;
+  S.practice = { amHost, stop() {} };
+  const store = S.online ? new FirebaseStore(`rooms/${S.code}/practice`) : new LocalStore();
+  const p = await startPractice({ canvas: $('#pcv'), pid, amHost, store });
+  if (run !== practiceRun) { p.stop(); return; }   // 起動中にゲームが始まった・退出した・ホストが代わった
+  S.practice = p;
+  if (amHost) p.setPlayers(S.players);
+}
+
+function stopPractice() {
+  practiceRun++;
+  S.practice?.stop();
+  S.practice = null;
 }
 
 function electHost() {
