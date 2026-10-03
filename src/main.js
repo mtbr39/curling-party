@@ -294,6 +294,7 @@ function startGameView() {
     S.client = new GameClient({ store: S.store, pid, canvas: $('#cv'), onFinal: () => renderFinal() });
     S.client.setHost(S.host);
     S.client.start();
+    $('#g-scorebtn').setAttribute('aria-pressed', 'false');
   }
   if (S.meta.status === 'finished') { renderFinal(); fadeOutBgm(); }
   else { $('#final').hidden = true; S.finale?.stop(); S.finale = null; }
@@ -350,6 +351,12 @@ function initGame() {
     $('#g-mute').textContent = m ? 'SOUND OFF' : 'SOUND ON';
   };
   $('#g-mute').onclick = () => mute(!isMuted());
+  // スマホ: 得点表は「得点」ボタンでひらく／とじる
+  $('#g-scorebtn').onclick = () => {
+    if (!S.client) return;
+    S.client.showScores = !S.client.showScores;
+    $('#g-scorebtn').setAttribute('aria-pressed', String(S.client.showScores));
+  };
   // 狭い画面: 音量スライダーは「音量」ボタンでひらく／とじる
   $('#g-volbtn').onclick = () => {
     const open = $('.g-top').classList.toggle('vols-open');

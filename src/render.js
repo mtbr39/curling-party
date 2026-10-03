@@ -73,21 +73,25 @@ export class Renderer {
     this.cv.height = Math.round(h * dpr);
     // 横長画面: 左右にパネル / 縦長画面: 上下にバー
     this.land = w >= h * 0.9 && w >= 720;
+    this.mobile = !this.land && w < 720;          // スマホ: 下の HUD なし・点数表はボタンで開く
+    this.laneK = this.mobile ? 0.72 : 1;          // シート下の列（タイマー・名前・残りの石）の大きさ
+    const lanePx = LANE_PX * this.laneK;
     if (this.land) {
       this.panelL = Math.max(240, Math.min(320, w * 0.24));
       this.panelR = Math.max(220, Math.min(320, w * 0.24));
       this.area = { x: this.panelL, y: 0, w: w - this.panelL - this.panelR, h };
     } else {
-      const top = Math.max(TOP, this.topPx || 0) + this.topBar;
-      this.area = { x: 0, y: top, w, h: h - top - BOTTOM - this.padBottom };
+      const top = (this.mobile ? 6 : Math.max(TOP, this.topPx || 0)) + this.topBar;
+      const bottom = (this.mobile ? 4 : BOTTOM) + this.padBottom;
+      this.area = { x: 0, y: top, w, h: h - top - bottom };
     }
     const a = this.area;
     const vw = SHEET.W + SIDE * 2;
     const vh = VIEW.x1 - VIEW.x0;
-    const s = this.scale = Math.max(0.15, Math.min((a.w - 16) / vw, (a.h - 16 - LANE_PX) / vh));
+    const s = this.scale = Math.max(0.15, Math.min((a.w - 16) / vw, (a.h - 16 - lanePx) / vh));
     this.u = 1 / s;                              // 画面1pxあたりのワールド単位
     this.ox = a.x + a.w / 2 - (SHEET.W / 2) * s;
-    this.oy = a.y + (a.h - vh * s - LANE_PX) / 2 + VIEW.x1 * s;
+    this.oy = a.y + (a.h - vh * s - lanePx) / 2 + VIEW.x1 * s;
   }
   toWorld(cx, cy) { return { x: (this.oy - cy) / this.scale, y: (cx - this.ox) / this.scale }; }
   toScreen(x, y) { return { x: this.ox + y * this.scale, y: this.oy - x * this.scale }; }
@@ -96,7 +100,7 @@ export class Renderer {
     const ctx = this.ctx;
     // 縦長画面では点数表の行数に合わせて上のバーの高さを変える
     const want = 22 + 12 + 18 + (c.game?.teams?.length || 0) * 19 + 12;
-    if (want !== this.topPx) { this.topPx = want; if (!this.land) this.resize(); }
+    if (want !== this.topPx) { this.topPx = want; if (!this.land && !this.mobile) this.resize(); }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, this.w, this.h);
@@ -126,6 +130,14 @@ export class Renderer {
       this.drawScores(ctx, c, 28, 34, this.panelL - 48, false);
       this.drawStatus(ctx, c, 28, this.h - 250, this.panelL - 48);
       this.drawHelp(ctx, this.w - this.panelR + 24, this.h - 150);
+    } else if (this.mobile) {
+      // スマホ: 点数表は上のバーの「得点」ボタンで開いたときだけ、シートの上に重ねて出す
+      if (c.showScores && !c.practice) {
+        const hh = 22 + 12 + 18 + (c.game?.teams?.length || 0) * 19 + 12;
+        ctx.fillStyle = 'rgba(251,251,249,.96)'; ctx.fillRect(8, this.topBar + 4, this.w - 16, hh);
+        ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.strokeRect(8, this.topBar + 4, this.w - 16, hh);
+        this.drawScores(ctx, c, 18, this.topBar + 24, this.w - 36, true);
+      }
     } else {
       this.drawScores(ctx, c, 16, 22 + this.topBar, this.w - 32, true);
       this.drawStatus(ctx, c, 16, this.h - BOTTOM + 14, this.w - 32);
@@ -552,7 +564,7 @@ export class Renderer {
     const g = c.game;
     const play = g && g.status === 'playing' && g.phase === 'play';
     const now = c.now;
-    const u = this.u;
+    const u = this.u * this.laneK;
     const ringX = -LANE_RING_Y * u, nameX = -LANE_NAME_Y * u, dotX = -LANE_DOT_Y * u, ringR = LANE.ring * u;
     for (const [pid, f] of Object.entries(c.figs)) {
       const team = g?.roster?.[pid] ?? c.players?.[pid]?.team;
@@ -631,7 +643,7 @@ export class Renderer {
 
   // 名前とチーム色の線（画面では横書き。x, y はワールド座標）
   drawName(ctx, c, pid, team, x, y) {
-    const u = this.u;
+    const u = this.u * this.laneK;
     ctx.fillStyle = INK;
     ctx.font = `${pid === c.pid ? 800 : 600} ${LANE.name * u}px ${MONO}`;
     const name = (c.players?.[pid]?.name || '?').slice(0, 7);
@@ -1183,6 +1195,22 @@ export class Renderer {
       ctx.font = `700 12px ${MONO}`; const w2 = ctx.measureText(l2).width;
       ctx.font = `600 11px ${FONT}`; const w3 = ctx.measureText(l3).width;
       // 横長画面: 右パネルの上（シート上の狙いゲージや予測を隠さない）。縦長画面: シートの中ほどの少し下
+      if (this.mobile) {
+        ctx.save();
+        ctx.font = `700 11px ${MONO}`;
+        const txt = `冴えわたり ｜ ${l2}`;
+        const bw = Math.min(maxW, ctx.measureText(txt).width + 22), bh = 24;
+        // 得点表を開いているときは、その下に出す
+        const below = c.showScores ? this.topBar + 4 + 22 + 12 + 18 + (g.teams?.length || 0) * 19 + 12 + 4 : this.area.y + 2;
+        const bx = this.w / 2 - bw / 2, by = below;
+        ctx.globalAlpha = 0.9; ctx.fillStyle = SHEET_C; ctx.fillRect(bx, by, bw, bh);
+        ctx.globalAlpha = 1; ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.strokeRect(bx, by, bw, bh);
+        ctx.fillStyle = teamColor(hp.team); ctx.fillRect(bx, by, 4, bh);
+        ctx.fillStyle = INK; ctx.textBaseline = 'middle';
+        ctx.fillText(txt, this.w / 2 + 2, by + bh / 2 + 1);
+        ctx.restore();
+        ctx.textAlign = 'center';
+      } else {
       const bw = this.land ? this.panelR - 40 : Math.min(maxW, Math.max(w1, w2, w3) + 36), bh = 78;
       const bx = this.land ? this.w - this.panelR + 16 : cx - bw / 2;
       const by = this.land ? 64 : cy + 40;
@@ -1200,6 +1228,7 @@ export class Renderer {
       ctx.font = `600 11px ${FONT}`; ctx.fillText(l3, pcx + 3, by + 67);
       ctx.restore();
       ctx.textAlign = 'center';
+      }
     }
     if (g.phase === 'play' && c.now < g.endStartAt) {
       const rem = (g.endStartAt - c.now) / 1000;

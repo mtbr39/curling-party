@@ -401,6 +401,7 @@ export class GameClient {
     if (v.textContent !== txt) v.textContent = txt;
     // 縦長画面: 下の HUD のすぐ上（空けてある場所）。横長画面: 右下にまとめる
     el.classList.toggle('land', this.renderer.land);
+    el.classList.toggle('mobile', !!this.renderer.mobile);
     el.hidden = this.game?.roster?.[this.pid] == null;
   }
 

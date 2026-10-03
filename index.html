@@ -92,9 +92,10 @@
   <canvas id="cv"></canvas>
   <div class="g-top">
     <span id="g-room"></span>
-    <button id="g-mute" class="mini ghost">SOUND ON</button>
+    <button id="g-scorebtn" class="mini ghost" aria-pressed="false">得点</button>
     <button id="g-volbtn" class="mini ghost" aria-expanded="false">音量</button>
     <span class="g-vols">
+    <button id="g-mute" class="mini ghost">SOUND ON</button>
     <label class="vol">SE <input id="g-vol" type="range" min="0" max="100" step="5" value="50" aria-label="効果音の音量"></label>
     <label class="vol">BGM <span id="g-eq" class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span> <input id="g-bgm" type="range" min="0" max="100" step="5" value="50" aria-label="BGMの音量"></label>
     </span>

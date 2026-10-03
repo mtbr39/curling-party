@@ -238,6 +238,10 @@ h2 { font: 800 12px var(--mono); letter-spacing: .2em; margin: 0 0 12px; }
 }
 .g-top .g-vols { display: contents; }
 .g-top #g-volbtn { display: none; }
+/* 得点表のボタンはスマホ（狭い縦長）だけ */
+.g-top #g-scorebtn { display: none; }
+@media (max-width: 719px) { #game .g-top #g-scorebtn { display: inline-block; } }
+.g-top #g-scorebtn[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 
 /* ---------- スマホ（タッチ）用の操作ボタン ---------- */
 .touch-ctl { position: absolute; left: 12px; right: 12px; bottom: 122px; height: 58px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 5; }
@@ -248,5 +252,6 @@ h2 { font: 800 12px var(--mono); letter-spacing: .2em; margin: 0 0 12px; }
 .tc-spin .tc-val { width: 58px; font: 800 13px var(--mono); }
 .tc-spin .tc-small { width: auto; padding: 0 10px; font: 700 12px var(--sans); border-color: var(--line); }
 .tc-sweep { width: 58px; height: 58px; border-radius: 50%; padding: 0; font: italic 900 15px var(--sans); color: var(--paper); background: var(--ink); border: 2px solid var(--ink); }
+.touch-ctl.mobile { bottom: 6px; }
 .touch-ctl.land { left: auto; bottom: 16px; gap: 14px; justify-content: flex-end; }
 .tc-sweep.on { background: var(--accent); border-color: var(--accent); transform: scale(.94); }
