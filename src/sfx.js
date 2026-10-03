@@ -3,7 +3,7 @@ let ctx = null;
 let master = null;
 let noiseBuf = null;
 let muted = false;
-let volume = 0.8;   // ゲーム全体の音量（0〜1）
+let volume = 0.5;   // ゲーム全体の音量（0〜1）
 
 function ac() {
   if (!ctx) {

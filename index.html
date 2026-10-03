@@ -41,16 +41,7 @@
     </div>
     <button id="btn-local" class="ghost wide">オフラインで練習（CPU対戦）</button>
 
-    <details class="howto">
-      <summary>あそびかた</summary>
-      <ul>
-        <li><b>全チーム同時に投げる。</b>各プレイヤーは1エンドに石を4つ、好きなタイミングで投げられる。</li>
-        <li><b>期限がある。</b>決まった秒数（標準30秒）ごとに1投ずつ投げないと石が1つ消える。チームごとにタイマーが少しずつずれてスタート。</li>
-        <li><b>最後の一投（ハンマー）</b>はエンドごとに決まったチームだけ。他の全員が投げ終わってから投げる。ハンマーのチームが得点できなければ、次のエンドもそのチームが持つ。</li>
-        <li><b>操作</b>：手前から奥へ投げる。マウス左右で位置 → 押して下へ引いて離すと投球（引く長さ＝強さ、角度＝向き、Shiftで精密）。強さ20%でハウスの手前、90%でバックライン越え。ホイール / Q E で回転。Space 長押しでスイープ（滑りやすく、曲がりにくくなる）。</li>
-        <li><b>得点</b>：ハウスの中心に一番近い石のチームが、他チームの一番近い石より内側にある石の数だけ得点。</li>
-      </ul>
-    </details>
+    <button class="ghost wide" data-manual>説明書 ― あそびかたとカーリングのこと</button>
   </div>
 </section>
 
@@ -58,7 +49,7 @@
 <section id="lobby" class="screen" hidden>
   <header class="bar">
     <div class="room">ROOM <b id="room-code">----</b> <button id="btn-copy" class="mini">招待リンク</button></div>
-    <button id="btn-leave" class="mini ghost">退出</button>
+    <div class="row"><button class="mini ghost" data-manual>説明書</button><button id="btn-leave" class="mini ghost">退出</button></div>
   </header>
   <div class="lobby-grid">
     <div>
@@ -98,11 +89,126 @@
   <div class="g-top">
     <span id="g-room"></span>
     <button id="g-mute" class="mini ghost">SOUND ON</button>
-    <input id="g-vol" class="vol" type="range" min="0" max="100" step="5" value="80" aria-label="音量">
+    <label class="vol">SE <input id="g-vol" type="range" min="0" max="100" step="5" value="50" aria-label="効果音の音量"></label>
+    <label class="vol">BGM <span id="g-eq" class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span> <input id="g-bgm" type="range" min="0" max="100" step="5" value="50" aria-label="BGMの音量"></label>
+    <button class="mini ghost" data-manual>説明書</button>
     <button id="g-leave" class="mini ghost">退出</button>
   </div>
   <div id="final" class="final" hidden><div id="final-body" class="final-card"></div></div>
 </section>
+
+<!-- 説明書 -->
+<dialog id="manual" class="manual" aria-labelledby="manual-title">
+  <div class="m-head">
+    <h2 id="manual-title">説明書</h2>
+    <button id="manual-close" class="mini ghost">閉じる</button>
+  </div>
+  <nav class="m-nav" aria-label="項目">
+    <button data-to="m-what">カーリングとは</button>
+    <button data-to="m-score">点数</button>
+    <button data-to="m-hammer">ハンマー</button>
+    <button data-to="m-sweep">スイープ</button>
+    <button data-to="m-curl">回転</button>
+    <button data-to="m-tactics">作戦</button>
+    <button data-to="m-party">このゲームのルール</button>
+    <button data-to="m-keys">操作</button>
+  </nav>
+  <div class="m-body">
+    <section id="m-what">
+      <h3>カーリングってどんな競技？</h3>
+      <p>氷の上で石（ストーン）をすべらせて、むこうにある円の的（<b>ハウス</b>）の中心に近づけあう競技です。全員が投げ終わるまでを<b>1エンド</b>と呼び、エンドごとに点数を数えます。</p>
+      <p>相手の石をはじき出したり、自分の石を守ったりできるので、「氷上のチェス」とも呼ばれます。</p>
+      <p class="real">1チーム4人が1人2投ずつ、2チームで計16投して1エンド。試合はふつう10エンドです。石は花崗岩でできていて、重さは約20kgあります。</p>
+    </section>
+
+    <section id="m-score">
+      <h3>点数の数え方</h3>
+      <p><b>1エンドで点が入るのは、1チームだけ</b>です。</p>
+      <ol>
+        <li>ハウスの中心（ティー）に<b>いちばん近い石</b>のチームが、そのエンドの勝ち。</li>
+        <li>勝ったチームは、<b>相手のいちばん近い石より内側</b>にある自分の石の数だけ点が入る。</li>
+        <li>ハウスに入っていない石は数えない。だれの石もハウスにないときは0点。</li>
+      </ol>
+      <figure class="m-fig">
+        <svg viewBox="0 0 200 200" role="img" aria-label="点数の例: 赤の石2つが黄色の石より内側にあるので、赤が2点">
+          <circle cx="100" cy="100" r="90" class="ring"/><circle cx="100" cy="100" r="60" class="ring"/>
+          <circle cx="100" cy="100" r="30" class="ring"/><circle cx="100" cy="100" r="5" class="tee"/>
+          <circle cx="100" cy="100" r="47" class="line"/>
+          <circle cx="108" cy="94" r="11" fill="#E4572E"/><text x="108" y="98" class="n">1</text>
+          <circle cx="68" cy="116" r="11" fill="#E4572E"/><text x="68" y="120" class="n">2</text>
+          <circle cx="137" cy="129" r="11" fill="#E8B931"/>
+          <circle cx="44" cy="160" r="11" fill="#E4572E" opacity=".45"/>
+        </svg>
+        <figcaption>赤の2つが、黄色のいちばん近い石（点線）より内側にあるので<b>赤が2点</b>。外側の赤（うすい石）は黄色より遠いので数えない。黄色は0点。</figcaption>
+      </figure>
+    </section>
+
+    <section id="m-hammer">
+      <h3>最後に投げる人が有利 ― ハンマー</h3>
+      <p>最後に投げる人は、ほかの全員の石の位置を見てから狙えるので、とても有利です。この最後の一投の権利を<b>ハンマー</b>と呼びます。</p>
+      <p>このゲームでは、エンドごとに1人がハンマーを持ちます。ほかの全員が投げ終わって石が止まると「ハンマータイム」。狙っている間は<b>投げた結果の予測が全員の画面に見えます</b>（冴えわたり）。</p>
+      <p>ハンマーのチームが点を取ると、ハンマーは次のチームへ移ります。0点だったり相手に点を取られたりしたら、次のエンドもハンマーを持ち続けます。</p>
+      <p class="real">エンドの最後を投げるのはチームのキャプテン「<b>スキップ</b>」。作戦を決めて仲間に指示を出し、勝負を決める一投をまかされるエースのような存在です。</p>
+    </section>
+
+    <section id="m-sweep">
+      <h3>スイープしよう！</h3>
+      <p>投げた石が動いている間は、<b>「今スイープをやめたら、ここに止まる」という予測</b>が線と石の輪郭で出ます。届かなそうなら、<kbd>Space</kbd> を長押ししてスイープ！</p>
+      <ul>
+        <li>スイープすると石がよくすべって、<b>遠くまで伸びる</b>。</li>
+        <li>曲がりにくくもなるので、曲がりすぎを防ぐのにも使える。</li>
+        <li>スイープできるのは自分のいちばん新しい石。</li>
+      </ul>
+      <p class="real">ブラシで石の前の氷を激しくこすり、表面をわずかにとかして摩擦を減らします。スキップの「ヤップ！（掃け！）」などのかけ声が試合の名物です。</p>
+    </section>
+
+    <section id="m-curl">
+      <h3>回転をかけると曲がる</h3>
+      <p>ホイールか <kbd>Q</kbd> <kbd>E</kbd> で回転をかけると、石は弧をえがいて曲がります。<b>遅くなるほどよく曲がる</b>ので、止まる直前にぐっと曲がります。</p>
+      <p>まっすぐでは届かない、ほかの石のうしろにも回りこめます。</p>
+      <p class="real">「カーリング」という名前は、この曲がる動き（curl）から来ています。</p>
+    </section>
+
+    <section id="m-tactics">
+      <h3>作戦のコツ</h3>
+      <dl>
+        <dt>強さの目安</dt>
+        <dd>20% でハウスの手前のふち、約53% で中心、90% 以上はバックラインを越える（相手の石をはじくテイクアウト用）。</dd>
+        <dt>ガードストーン</dt>
+        <dd>ハウスの手前に石を置くと、うしろの自分の石を相手のテイクアウトから守れる。</dd>
+        <dt>テイクアウト</dt>
+        <dd>強く投げて相手の石をハウスの外へはじき出す。1投で2つ、3つ出せると大きな演出が出る。</dd>
+        <dt>スティール</dt>
+        <dd>ハンマーを持っていないチームが点を取ること。不利な側が取る点なので大成功。</dd>
+        <dt>短すぎる石は消える</dt>
+        <dd>奥のホッグライン（ハウスの手前の太い線）を越えずに止まった石は、何かに当たっていなければ取りのぞかれる。横のふちに触れた石、奥のバックラインを越えた石も外れ。</dd>
+      </dl>
+      <p class="real">ハンマーを持つチームが1点しか取れなさそうなとき、わざと0点で終えてハンマーを次のエンドに持ちこす「ブランクエンド」という作戦もあります。</p>
+    </section>
+
+    <section id="m-party">
+      <h3>このゲームならではのルール</h3>
+      <ul>
+        <li><b>全員同時に、好きなタイミングで投げる。</b>順番待ちはない。</li>
+        <li><b>1投ごとに期限がある</b>（標準30秒）。間に合わないと石が1つ消える。チームごとにタイマーが少しずつずれて始まる。</li>
+        <li>全員がその回の石を投げ終えたら、余った待ち時間はつめられる。</li>
+        <li>各プレイヤーの<b>最後の一投</b>も、狙っている間は結果の予測が全員に見える。</li>
+      </ul>
+    </section>
+
+    <section id="m-keys">
+      <h3>操作</h3>
+      <table class="m-keys">
+        <tr><th>位置（左右）</th><td>マウスを左右に ／ <kbd>A</kbd> <kbd>D</kbd>・<kbd>←</kbd> <kbd>→</kbd> で微調整（<kbd>Shift</kbd> で大きく）</td></tr>
+        <tr><th>投げる</th><td>押して<b>下へ引き</b>、離す。引く長さ＝強さ、引く向き＝狙い（<kbd>Shift</kbd> で精密）</td></tr>
+        <tr><th>回転</th><td>ホイール ／ <kbd>Q</kbd> <kbd>E</kbd>（<kbd>R</kbd> でリセット）</td></tr>
+        <tr><th>スイープ</th><td><kbd>Space</kbd> 長押し</td></tr>
+        <tr><th>キャンセル</th><td>右クリック ／ <kbd>Esc</kbd></td></tr>
+        <tr><th>自分の軌跡</th><td><kbd>T</kbd> で表示／非表示</td></tr>
+      </table>
+    </section>
+  </div>
+</dialog>
 
 <div id="toast" class="toast"></div>
 

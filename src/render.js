@@ -1,7 +1,7 @@
 // Canvas 描画。色数を抑えたミニマルなスタイル。
 // シートは縦向き：ワールドの x（投げる方向）が画面の下→上、y が画面の左→右。
 import { SHEET, STONE_R, PHYS, teamColor, teamName } from './config.js';
-import { tk, doneCount, deadlineFor, distToTee } from './rules.js';
+import { tk, doneCount, deadlineFor, distToTee, slotSec } from './rules.js';
 
 const R = STONE_R;
 export const INK = '#141414';
@@ -100,7 +100,7 @@ export class Renderer {
     this.drawTrails(ctx, c);
     this.drawMyShots(ctx, c);
     this.drawPredictions(ctx, c);
-    this.drawHammerPreview(ctx, c);
+    this.drawShotPreviews(ctx, c);
     this.drawStones(ctx, c);
     this.drawShields(ctx, c);
     this.drawLane(ctx, c);
@@ -297,10 +297,13 @@ export class Renderer {
     ctx.textBaseline = 'alphabetic';
   }
 
-  // ハンマーの最後の一投の結果予測（狙っている間だけ）
-  drawHammerPreview(ctx, c) {
-    const hp = c.hammerPreview;
-    if (!hp) return;
+  // 冴えわたり（最後の一投の結果予測。狙っている間だけ、全員に見える）
+  drawShotPreviews(ctx, c) {
+    for (const hp of c.previews || []) this.drawShotPreview(ctx, c, hp);
+  }
+
+  // 冴えわたり: 1人ぶんの結果予測
+  drawShotPreview(ctx, c, hp) {
     const u = this.u;
     ctx.save();
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -332,6 +335,17 @@ export class Renderer {
       ctx.setLineDash([5 * u, 3 * u]);
       ctx.beginPath(); ctx.arc(f.x, f.y, R, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
+      // 誰の予測かがわかるよう、投げる石の予測位置に名前
+      if (f.mine) {
+        const name = hp.pid === c.pid ? 'あなた' : (c.players?.[hp.pid]?.name || '?');
+        ctx.save();
+        ctx.translate(f.x, f.y + R + 5 * u); ctx.rotate(Math.PI / 2);
+        ctx.font = `700 ${11 * u}px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        const tw = ctx.measureText(name).width;
+        ctx.globalAlpha = 0.9; ctx.fillStyle = SHEET_C; ctx.fillRect(-2 * u, -7 * u, tw + 4 * u, 14 * u);
+        ctx.globalAlpha = 1; ctx.fillStyle = INK; ctx.fillText(name, 0, 0);
+        ctx.restore();
+      }
     }
     ctx.restore();
   }
@@ -488,7 +502,7 @@ export class Renderer {
           if (dl === Infinity) label = 'H';
           else {
             const rem = (dl - now) / 1000;
-            frac = Math.max(0, Math.min(1, rem / g.interval));
+            frac = Math.max(0, Math.min(1, rem / slotSec(g, pid, done + 1)));
             label = rem > 0 ? rem.toFixed(rem < 10 ? 1 : 0) : '0';
           }
           ctx.lineWidth = LANE.ringW * u;
@@ -797,7 +811,7 @@ export class Renderer {
     else if (ms?.why === 'hammer') text = 'HAMMER 待機';
     else {
       const rem = (deadlineFor(g, c.pid, done + 1) - c.now) / 1000;
-      frac = Math.max(0, Math.min(1, rem / g.interval));
+      frac = Math.max(0, Math.min(1, rem / slotSec(g, c.pid, done + 1)));
       warn = rem < 3;
       text = `${Math.max(0, rem).toFixed(1)}s`;
     }
@@ -955,16 +969,29 @@ export class Renderer {
     const cx = mid.x, cy = mid.y;
     const maxW = this.area.w - 8;
     ctx.textAlign = 'center';
-    // 冴えわたり: ハンマーの人が狙っている間、全員に常に表示
-    if (c.hammerPreview) {
-      const hp = c.hammerPreview;
-      const name = c.players?.[hp.pid]?.name || '?';
-      const l1 = '冴えわたり', l2 = `${name} の最後の一投を予測中`, l3 = '狙っている間、投げた結果が予測で見える';
+    // 冴えわたりの説明（ドラッグ前から常に表示）
+    //   ・ハンマータイムの間 → 全員の画面に、ハンマーの人の一投として
+    //   ・自分が最後の一投を投げる番 → 自分の画面に
+    const hammerTime = g.phase === 'play' && g.hammerUnlockAt && g.hammerPid && doneCount(g, g.hammerPid) === g.stones - 1;
+    const myLast = c.myState?.ok && c.myState.done === g.stones - 1;
+    const subject = hammerTime ? g.hammerPid : (myLast ? c.pid : null);
+    if (subject) {
+      const hp = { pid: subject, team: g.roster?.[subject] };
+      const name = subject === c.pid ? 'あなた' : (c.players?.[subject]?.name || '?');
+      const aimingNow = (c.previews || []).some(p => p.pid === subject);
+      const what = hammerTime ? '最後の一投（ハンマー）' : '最後の一投';
+      const l1 = '冴えわたり';
+      const who = subject === c.pid ? name : name + ' ';
+      const l2 = aimingNow ? `${who}の${what}を予測中` : `${who}の${what}`;
+      const l3 = '狙っている間、投げた結果が予測で見える';
       ctx.font = `italic 900 24px ${FONT}`; const w1 = ctx.measureText(l1).width;
       ctx.font = `700 12px ${MONO}`; const w2 = ctx.measureText(l2).width;
       ctx.font = `600 11px ${FONT}`; const w3 = ctx.measureText(l3).width;
-      const bw = Math.min(maxW, Math.max(w1, w2, w3) + 36), bh = 78;
-      const bx = cx - bw / 2, by = cy + 40;   // ハンマータイムの演出（中央の高さ）と重ならないよう少し下
+      // 横長画面: 右パネルの上（シート上の狙いゲージや予測を隠さない）。縦長画面: シートの中ほどの少し下
+      const bw = this.land ? this.panelR - 40 : Math.min(maxW, Math.max(w1, w2, w3) + 36), bh = 78;
+      const bx = this.land ? this.w - this.panelR + 16 : cx - bw / 2;
+      const by = this.land ? 64 : cy + 40;
+      const pcx = bx + bw / 2;
       ctx.save();
       ctx.globalAlpha = 0.92;
       ctx.fillStyle = SHEET_C; ctx.fillRect(bx, by, bw, bh);
@@ -972,10 +999,10 @@ export class Renderer {
       ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
       ctx.fillStyle = teamColor(hp.team); ctx.fillRect(bx, by, 6, bh);
       ctx.fillStyle = INK;
-      ctx.font = `italic 900 24px ${FONT}`; ctx.fillText(l1, cx + 3, by + 30);
-      ctx.font = `700 12px ${MONO}`; ctx.fillText(l2, cx + 3, by + 50);
+      ctx.font = `italic 900 24px ${FONT}`; ctx.fillText(l1, pcx + 3, by + 30);
+      ctx.font = `700 12px ${MONO}`; ctx.fillText(l2, pcx + 3, by + 50);
       ctx.fillStyle = 'rgba(20,20,20,.65)';
-      ctx.font = `600 11px ${FONT}`; ctx.fillText(l3, cx + 3, by + 67);
+      ctx.font = `600 11px ${FONT}`; ctx.fillText(l3, pcx + 3, by + 67);
       ctx.restore();
       ctx.textAlign = 'center';
     }

@@ -2,10 +2,11 @@
 // 非ホストは自前で物理を回して予測し、ホストのスナップショットで補正する。
 import { SHEET, STONE_R, PHYS, RULES, SPEED, teamColor, teamName, powerToSpeed } from './config.js';
 import { World, makeStone, runSolo } from './physics.js';
-import { throwState, doneCount, deadlineFor, isGuarding } from './rules.js';
+import { throwState, doneCount, deadlineFor, isGuarding, isLastShot } from './rules.js';
 import { decodeStone, normalizeGame } from './host.js';
 import { Renderer, LANE } from './render.js';
 import { sfx, unlockAudio } from './sfx.js';
+import { startBgm } from './bgm.js';
 
 const R = STONE_R;
 const MAX_DRAG = 280; // px
@@ -30,7 +31,7 @@ export class GameClient {
     this.showShots = true;
     this.predictions = [];
     this.seenStones = new Set();
-    this.hammerPreview = null;  // ハンマーの最後の一投の結果予測
+    this.previews = [];         // 冴えわたり（最後の一投の結果予測）。狙っている人ごと
     this.shake = 0;
     this.now = store.serverNow();
     this.pending = [];
@@ -200,7 +201,7 @@ export class GameClient {
           note: '冴えわたり：狙っている間、投げた結果が予測で見える', color: col, size: 44, max: 4,
         });
         if (e.pid === this.pid) {
-          this.showToast(`最後の一投！ 引いて狙うと結果の予測が見える（${this.game?.interval || 10}秒以内）`);
+          this.showToast(`最後の一投！ 引いて狙うと結果の予測が見える（${(this.game?.interval || 10) * RULES.HAMMER_TIME}秒以内）`);
           this.toast.max = 5;
         }
         sfx.go();
@@ -221,6 +222,9 @@ export class GameClient {
         this.shake = Math.max(this.shake, 12);
         this.bigBurst(col);
         sfx.tech(5);
+        break;
+      case 'skip':
+        if (e.sec >= 2) this.showToast(`全員投げ終えたので、待ち時間を${e.sec}秒つめた`);
         break;
       case 'reject':
         if (e.pid === this.pid) {
@@ -387,6 +391,7 @@ export class GameClient {
 
   onKey(e, down) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (document.getElementById('manual')?.open) return;   // 説明書を読んでいる間は操作しない
     const k = e.key.toLowerCase();
     if (k === ' ') { e.preventDefault(); unlockAudio(); this.setSweep(down); return; }
     if (!down) return;
@@ -495,7 +500,7 @@ export class GameClient {
     this.myState = g ? throwState(g, this.pid, this.now, this.pending.length) : null;
     this.updateShots();
     this.updatePredictions();
-    this.updateHammerPreview();
+    this.updateLastShotPreviews();
     this.soundNewStones();
     this.updateFigures(dt);
     this.updateFx(dt);
@@ -510,8 +515,11 @@ export class GameClient {
     if (this.now < g.endStartAt) {
       const sec = Math.ceil((g.endStartAt - this.now) / 1000 - 0.5);
       if (sec !== this.lastCount) { this.lastCount = sec; if (sec > 0 && sec <= 3) sfx.count(); else if (sec === 0) sfx.go(); }
-      return;
+      if (sec > 0) return;
     }
+    // BGM は「3, 2, 1, GO」の GO から（途中から入った人もここで流れ始める。流れていれば何もしない）
+    startBgm();
+    if (this.now < g.endStartAt) return;
     const ms = this.myState;
     if (ms?.ok && ms.deadline !== Infinity) {
       const rem = Math.ceil((ms.deadline - this.now) / 1000);
@@ -555,26 +563,45 @@ export class GameClient {
   }
 
   // ハンマーの最後の一投: 狙っている間、他の石との衝突も含めて「投げたらどうなるか」を丸ごと計算する
-  // ハンマーの人が狙っている間は、本人だけでなく全員の画面に出す（届いた狙いから各自で同じ計算をする）
-  updateHammerPreview() {
+  // 冴えわたり: 最後の一投（各プレイヤーの最後の石）を狙っている人の結果予測。
+  // 自分の分も他の人の分も、届いた狙いから各自の画面で同じ計算をして全員に見せる
+  updateLastShotPreviews() {
     const g = this.game;
-    const hp = g?.hammerPid;
-    let a = null;
-    if (g && g.phase === 'play' && g.hammerUnlockAt && hp && doneCount(g, hp) === g.stones - 1) {
-      if (hp === this.pid) {
-        const me = this.aim;
-        if (this.myState?.ok && me.dragging && me.valid) a = { y: me.y, angle: me.angle, power: me.power, spin: me.spin };
-      } else {
-        const r = this.aims[hp];
-        if (r?.d && r?.v) a = { y: r.y, angle: r.a || 0, power: r.p || 0, spin: r.s || 0 };
+    const aiming = {};
+    if (g && g.phase === 'play' && this.now >= g.endStartAt) {
+      for (const pid of Object.keys(g.roster || {})) {
+        if (pid === this.pid) {
+          const me = this.aim, ms = this.myState;
+          if (ms?.ok && ms.done === g.stones - 1 && me.dragging && me.valid) {
+            aiming[pid] = { y: me.y, angle: me.angle, power: me.power, spin: me.spin };
+          }
+        } else {
+          const r = this.aims[pid];
+          if (r?.d && r?.v && isLastShot(g, pid, doneCount(g, pid))) {
+            aiming[pid] = { y: r.y, angle: r.a || 0, power: r.p || 0, spin: r.s || 0 };
+          }
+        }
       }
     }
-    if (!a) { this.hammerPreview = null; this.hpKey = null; return; }
-    const key = [hp, a.y.toFixed(1), a.angle.toFixed(4), a.power.toFixed(4), a.spin].join('|');
+    const cache = (this.previewCache ||= {});
     const t = performance.now();
-    if (key === this.hpKey || t - (this.hpAt || 0) < 60) return;
-    this.hpKey = key; this.hpAt = t;
+    const moving = !this.world.isSettled();
+    const out = [];
+    for (const [pid, a] of Object.entries(aiming)) {
+      const key = [a.y.toFixed(1), a.angle.toFixed(4), a.power.toFixed(4), a.spin].join('|');
+      const cur = cache[pid];
+      // 狙いが変わったとき、または盤面が動いている間は定期的に計算し直す
+      const stale = !cur || cur.key !== key || (moving && t - cur.at > 150);
+      if (stale && (!cur || t - cur.at >= 60)) cache[pid] = { key, at: t, data: this.simulateShot(pid, a) };
+      if (cache[pid]) out.push(cache[pid].data);
+    }
+    for (const pid of Object.keys(cache)) if (!aiming[pid]) delete cache[pid];
+    this.previews = out;
+  }
 
+  // pid が狙い a で投げたら、他の石との衝突も含めてどうなるかを本物と同じ物理で最後まで計算する
+  simulateShot(pid, a) {
+    const g = this.game;
     // いまの盤面を複製し、自分の石を足して、全部止まるまで本物と同じ物理で進める
     const w = new World();
     const before = new Map();
@@ -587,7 +614,7 @@ export class GameClient {
     }
     const speed = powerToSpeed(a.power);
     const mine = w.add(makeStone({
-      id: '_hammer', team: g.roster[hp], owner: hp, x: SHEET.SPAWN_X, y: a.y,
+      id: '_shot', team: g.roster[pid], owner: pid, x: SHEET.SPAWN_X, y: a.y,
       vx: Math.cos(a.angle) * speed, vy: Math.sin(a.angle) * speed, spin: a.spin,
     }));
     const paths = new Map([[mine.id, { team: mine.team, mine: true, pts: [{ x: mine.x, y: mine.y }] }]]);
@@ -618,7 +645,7 @@ export class GameClient {
       p.pts.push(end);
       finals.push({ id, team: p.team, mine: p.mine, x: end.x, y: end.y, out: !!o });
     }
-    this.hammerPreview = { pid: hp, team: g.roster[hp], paths: [...paths.values()], finals };
+    return { pid, team: g.roster[pid], paths: [...paths.values()], finals };
   }
 
   updateShots() {

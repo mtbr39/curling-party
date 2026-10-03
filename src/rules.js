@@ -15,16 +15,27 @@ export function doneCount(game, pid) {
   return st ? (st.t || 0) + (st.l || 0) : 0;
 }
 
+// k 番目の石の持ち時間（秒）。ハンマーの最後の一投だけ長い
+export function slotSec(game, pid, k) {
+  return pid === game.hammerPid && k === game.stones ? game.interval * RULES.HAMMER_TIME : game.interval;
+}
+
+// 最後の一投（各プレイヤーの最後の石）か。冴えわたり（結果の予測）の対象
+export function isLastShot(game, pid, done) {
+  return done === game.stones - 1 && !isHammerLocked(game, pid, done);
+}
+
 // k 番目(1始まり)の石の投球期限 (サーバ時刻 ms)
 export function deadlineFor(game, pid, k) {
   const team = game.roster?.[pid];
   if (team == null) return Infinity;
   const N = game.stones;
   if (pid === game.hammerPid && k === N) {
-    return game.hammerUnlockAt ? game.hammerUnlockAt + game.interval * 1000 : Infinity;
+    return game.hammerUnlockAt ? game.hammerUnlockAt + slotSec(game, pid, k) * 1000 : Infinity;
   }
   const off = game.offsets?.[tk(team)] || 0;
-  return game.endStartAt + (off + k * game.interval) * 1000;
+  // saved: 全員が早く投げ終えて詰めた時間（ms）。その分だけ以降の期限が早まる
+  return game.endStartAt + (off + k * game.interval) * 1000 - (game.saved || 0);
 }
 
 export function isHammerLocked(game, pid, done) {

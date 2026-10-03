@@ -5,6 +5,8 @@ import { GameHost } from './host.js';
 import { GameClient } from './client.js';
 import { staggerSec, tk } from './rules.js';
 import { unlockAudio, setMuted, isMuted, setVolume, getVolume } from './sfx.js';
+import { playFinale } from './finale.js';
+import { fadeOutBgm, stopBgm, setBgmVolume, getBgmVolume, setBgmMuted, onBgmState } from './bgm.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,6 +19,7 @@ const pid = (() => {
 
 const S = {
   store: null, code: null, online: false,
+  finale: null,   // 結果発表の演出 { key, stop }
   meta: null, players: {}, host: null, client: null, unsubs: [],
 };
 
@@ -262,60 +265,79 @@ function startGameView() {
     S.client.setHost(S.host);
     S.client.start();
   }
-  if (S.meta.status === 'finished') renderFinal();
-  else $('#final').hidden = true;
+  if (S.meta.status === 'finished') { renderFinal(); fadeOutBgm(); }
+  else { $('#final').hidden = true; S.finale?.stop(); S.finale = null; }
 }
 
 function stopGame() {
   if (S.client) { S.client.destroy(); S.client = null; }
   $('#final').hidden = true;
+  S.finale?.stop(); S.finale = null;
+  stopBgm();
 }
 
+// 結果発表。ルームの更新のたびに呼ばれるので、同じゲームの演出は最初からやり直さない
 function renderFinal() {
   const g = S.client?.game;
   if (!g || S.meta?.status !== 'finished') return;
-  const rows = (g.teams || []).map(t => ({ t, sc: g.scores?.[tk(t)] || 0 })).sort((a, b) => b.sc - a.sc);
-  const top = rows[0]?.sc;
   const amHost = S.meta.hostId === pid;
+  const actions = amHost
+    ? '<button id="btn-again" class="primary">もう一度</button><button id="btn-tolobby">ロビーへ</button>'
+    : '<span class="muted">ホストの操作を待っています…</span>';
+  const key = `${S.code}|${g.endStartAt}|${(g.history || []).length}`;
   $('#final').hidden = false;
-  $('#final-body').innerHTML = `
-    <div class="final-title">${rows.filter(r => r.sc === top).length > 1 ? 'DRAW' : 'WINNER'}</div>
-    <ol class="standings">${rows.map((r, i) => `
-      <li style="--c:${teamColor(r.t)}" class="${r.sc === top ? 'win' : ''}">
-        <span class="rk">${i + 1}</span><span class="sw"></span>
-        <span class="nm">${esc(S.client.teamLabel(r.t))}</span>
-        <span class="ends">${(g.history || []).map(h => `<em>${h.team === r.t ? h.points : '·'}</em>`).join('')}</span>
-        <b>${r.sc}</b></li>`).join('')}
-    </ol>
-    <div class="row">
-      ${amHost ? '<button id="btn-again" class="primary">もう一度</button><button id="btn-tolobby">ロビーへ</button>' : '<span class="muted">ホストの操作を待っています…</span>'}
-    </div>`;
+  if (S.finale?.key !== key) {
+    S.finale?.stop();
+    S.finale = { key, stop: playFinale($('#final-body'), { game: g, teamLabel: t => S.client.teamLabel(t), actions }) };
+  } else if (S.finale.amHost !== amHost) {
+    $('#final-body .fn-actions').innerHTML = actions;   // 途中でホストが代わった
+  }
+  S.finale.amHost = amHost;
   if (amHost) {
     $('#btn-again').onclick = () => S.host?.startGame();
     $('#btn-tolobby').onclick = () => S.host?.backToLobby();
   }
 }
 
+// 説明書: data-manual のボタンで開く。背景をクリックしても閉じる
+function initManual() {
+  const dlg = $('#manual');
+  document.querySelectorAll('[data-manual]').forEach(b => { b.onclick = () => dlg.showModal(); });
+  $('#manual-close').onclick = () => dlg.close();
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  dlg.querySelectorAll('.m-nav button').forEach(b => {
+    b.onclick = () => document.getElementById(b.dataset.to)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 function initGame() {
   $('#g-leave').onclick = () => { if (confirm('ルームから退出しますか？')) leaveRoom(); };
-  $('#g-mute').onclick = () => {
-    setMuted(!isMuted());
-    $('#g-mute').textContent = isMuted() ? 'SOUND OFF' : 'SOUND ON';
+  // SOUND ON/OFF は効果音と BGM の両方をまとめて切り替える
+  const mute = m => {
+    setMuted(m); setBgmMuted(m);
+    $('#g-mute').textContent = m ? 'SOUND OFF' : 'SOUND ON';
   };
-  // 音量: スライダーで調整し、次に開いたときのために覚えておく
-  try { const v = localStorage.getItem('curling.volume'); if (v !== null) setVolume(Number(v) / 100); } catch {}
-  const vol = $('#g-vol');
-  vol.value = Math.round(getVolume() * 100);
-  vol.oninput = () => {
-    setVolume(vol.value / 100);
-    if (isMuted()) { setMuted(false); $('#g-mute').textContent = 'SOUND ON'; }
-    try { localStorage.setItem('curling.volume', vol.value); } catch {}
+  $('#g-mute').onclick = () => mute(!isMuted());
+  // 音量: 効果音と BGM を別々のスライダーで調整し、次に開いたときのために覚えておく
+  const slider = (sel, key, set, get) => {
+    try { const v = localStorage.getItem(key); if (v !== null) set(Number(v) / 100); } catch {}
+    const el = $(sel);
+    el.value = Math.round(get() * 100);
+    el.oninput = () => {
+      set(el.value / 100);
+      if (isMuted()) mute(false);
+      try { localStorage.setItem(key, el.value); } catch {}
+    };
   };
+  slider('#g-vol', 'curling.volume', setVolume, getVolume);
+  slider('#g-bgm', 'curling.bgmVolume', setBgmVolume, getBgmVolume);
+  onBgmState(on => $('#g-eq').classList.toggle('on', on));
 }
 
 initTitle();
 initLobby();
 initGame();
+initManual();
 show('title');
 
 // キャンバスで使う日本語フォントを先に読み込んでおく（技の演出の文字用）

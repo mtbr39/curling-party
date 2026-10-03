@@ -117,6 +117,7 @@ export const RULES = {
   SETTLE_WAIT: 1000,    // ms 石が全部止まってから得点計算するまでの待ち
   COUNTDOWN: 3500,      // ms エンド開始前のカウントダウン
   RESULT_TIME: 5500,    // ms エンド結果表示
+  HAMMER_TIME: 2,       // ハンマーの最後の一投の持ち時間 = 一投の期限 × この倍率
   BIG_END: 3,           // 1エンドでこの点数以上取ったら「ビッグエンド」
 };
 

@@ -165,7 +165,7 @@ export class GameHost {
       roster, teams, order, offsets, stats,
       hammerPid: members.length ? members[(g.end - 1) % members.length] : null,
       endStartAt: this.now() + RULES.COUNTDOWN,
-      hammerUnlockAt: 0, phase: 'play', result: null, nextAt: 0,
+      hammerUnlockAt: 0, phase: 'play', result: null, nextAt: 0, saved: 0, savedRound: 0,
     });
     this.world.clear();
     this.throwInfo = {};
@@ -212,6 +212,7 @@ export class GameHost {
     this.throwInfo[id] = { team, owner: pid };
     g.stats[pid] ||= { t: 0, l: 0 };
     g.stats[pid].t++;
+    this.skipIdle(this.now());
     this.calmSince = 0; // 新しい石が動き出したので「止まってからの時間」はやり直し
     this.writeGame();
     this.dirty = true;
@@ -300,6 +301,7 @@ export class GameHost {
         } else break;
       }
     }
+    if (changed) this.skipIdle(now);
 
     const settled = this.world.isSettled();
     // ハンマー解禁: 他の全員が投げ終わり、石が全部止まった
@@ -326,7 +328,10 @@ export class GameHost {
     const allDone = Object.keys(g.roster).every(pid => doneCount(g, pid) >= N);
     if (allDone && calm && now - this.calmSince >= RULES.SETTLE_WAIT) {
       const res = scoreEnd(this.world.stones);
-      g.history = [...(g.history || []), { team: res.team, points: res.points, hammer: g.hammer }];
+      // 結果発表で見せる最終盤面: [x, y, チーム, 得点した石なら1]
+      const board = this.world.stones.filter(s => !s.out)
+        .map(s => [Math.round(s.x), Math.round(s.y), s.team, res.ids.includes(s.id) ? 1 : 0]);
+      g.history = [...(g.history || []), { team: res.team, points: res.points, hammer: g.hammer, board }];
       if (res.team >= 0) g.scores[tk(res.team)] = (g.scores[tk(res.team)] || 0) + res.points;
       // スティール: ハンマーを持っていないチームが得点した
       if (res.team >= 0 && res.points > 0 && res.team !== g.hammer) {
@@ -346,23 +351,40 @@ export class GameHost {
     if (changed) this.writeGame();
   }
 
+  // 全員が k 投目まで投げ終えたら、k 投目の残り時間を詰める（早く投げ終えた分、次の石を長く待たなくてよい）
+  // いちばん早い期限のチームがちょうど持ち時間いっぱいから始まるようにずらすので、だれの持ち時間も interval を下回らない
+  skipIdle(now) {
+    const g = this.game;
+    const ids = Object.keys(g.roster);
+    if (!ids.length) return;
+    const k = Math.min(...ids.map(pid => doneCount(g, pid)));
+    if (k <= 0 || k >= g.stones || k <= (g.savedRound || 0)) return;
+    g.savedRound = k;
+    const first = Math.min(...ids.map(pid => deadlineFor(g, pid, k)));
+    if (!isFinite(first) || first <= now) return;
+    g.saved = (g.saved || 0) + (first - now);
+    this.event({ type: 'skip', sec: Math.round((first - now) / 1000) });
+  }
+
   tickBot(pid, now) {
     const g = this.game;
     const st = throwState(g, pid, now);
     if (!st.ok) { delete this.botPlan[pid]; return; }
     let bp = this.botPlan[pid];
-    // ハンマーの最後の一投は、投げる前に少し狙って考える（その間、全員に予測が見える）
-    const hammerShot = pid === g.hammerPid && st.done === g.stones - 1;
+    // 最後の一投（冴えわたり）は、投げる前に少し狙って考える（その間、全員に予測が見える）
+    const lastShot = st.done === g.stones - 1;
+    const hammerShot = lastShot && pid === g.hammerPid;
     const THINK = 2200;
     if (!bp || bp.k !== st.done) {
-      const earliest = Math.max(now, g.endStartAt) + (hammerShot ? THINK + 600 : 700);
+      const earliest = Math.max(now, g.endStartAt) + (lastShot ? THINK + 600 : 700);
       const latest = Math.min(st.deadline - 1200, earliest + 7000);
       const at = latest > earliest ? earliest + Math.random() * (latest - earliest) : now + 100;
       const y = SHEET.CY + (Math.random() - 0.5) * SHEET.W * 0.65;
       bp = this.botPlan[pid] = { at, k: st.done, y };
       this.store.set(`aims/${pid}`, { y, a: 0, p: 0, s: 0, d: 0 });
     }
-    if (hammerShot && !bp.shot && now >= bp.at - THINK && this.world.isSettled()) {
+    if (bp.at > st.deadline - 1200) bp.at = Math.max(now + 100, st.deadline - 1200);   // 期限が詰まったら予定も早める
+    if (lastShot && !bp.shot && now >= bp.at - THINK && (!hammerShot || this.world.isSettled())) {
       bp.shot = planShot(this.world, g.roster[pid], 1, bp.y);
       this.store.set(`aims/${pid}`, { y: bp.shot.y, a: bp.shot.aimAngle, p: bp.shot.power, s: bp.shot.spin, d: 1, v: 1 });
     }
@@ -398,6 +420,7 @@ export function decodeStone(a) {
 export function normalizeGame(g) {
   if (!g) return g;
   g.history = Array.isArray(g.history) ? g.history : Object.values(g.history || {});
+  for (const h of g.history) h.board = Array.isArray(h.board) ? h.board : Object.values(h.board || {});
   g.teams = Array.isArray(g.teams) ? g.teams : Object.values(g.teams || {});
   g.order = Array.isArray(g.order) ? g.order : Object.values(g.order || {});
   g.scores ||= {};
