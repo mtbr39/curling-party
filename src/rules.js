@@ -72,11 +72,12 @@ export function inHouse(s) {
   return distToTee(s) <= SHEET.HOUSE_R + STONE_R;
 }
 
-// ガードストーン: g がハウスの外・手前にあり、ハウス内の同じチームの石 s への進路をふさいでいる
+// ガードストーン: g が奥のホッグラインを完全に越えて、ハウスの外・手前（ガードゾーン）にあり、
+// ハウス内の同じチームの石 s への進路をふさいでいる
 export function isGuarding(g, s) {
   if (!g || !s || g === s || g.out || s.out || g.team !== s.team) return false;
   if (!inHouse(s) || inHouse(g)) return false;
-  if (g.x > SHEET.TEE_X) return false;
+  if (g.x - STONE_R < SHEET.FAR_HOG || g.x > SHEET.TEE_X) return false;
   if (s.x - g.x < STONE_R * 1.5) return false;
   return Math.abs(s.y - g.y) <= STONE_R * 1.7;
 }

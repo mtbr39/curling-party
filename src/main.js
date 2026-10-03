@@ -289,6 +289,7 @@ function initLobby() {
 // ------------------------------------------------------------ ゲーム画面
 function startGameView() {
   show('game');
+  $('#g-tolobby').hidden = S.meta.hostId !== pid;   // ロビーへ戻すのはホストだけ
   if (!S.client) {
     S.client = new GameClient({ store: S.store, pid, canvas: $('#cv'), onFinal: () => renderFinal() });
     S.client.setHost(S.host);
@@ -341,6 +342,8 @@ function initManual() {
 
 function initGame() {
   $('#g-leave').onclick = () => { if (confirm('ルームから退出しますか？')) leaveRoom(); };
+  // ホストだけ: ゲームをやめて、全員をロビー（設定・チーム決めの画面）へ戻す
+  $('#g-tolobby').onclick = () => { if (confirm('ゲームをやめて、みんなをロビーに戻しますか？')) S.host?.backToLobby(); };
   // SOUND ON/OFF は効果音と BGM の両方をまとめて切り替える
   const mute = m => {
     setMuted(m); setBgmMuted(m);
