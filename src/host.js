@@ -328,6 +328,14 @@ export class GameHost {
       const res = scoreEnd(this.world.stones);
       g.history = [...(g.history || []), { team: res.team, points: res.points, hammer: g.hammer }];
       if (res.team >= 0) g.scores[tk(res.team)] = (g.scores[tk(res.team)] || 0) + res.points;
+      // スティール: ハンマーを持っていないチームが得点した
+      if (res.team >= 0 && res.points > 0 && res.team !== g.hammer) {
+        this.event({ type: 'steal', team: res.team, points: res.points });
+      }
+      // ビッグエンド: 1エンドで大量得点
+      if (res.team >= 0 && res.points >= RULES.BIG_END) {
+        this.event({ type: 'bigend', team: res.team, points: res.points });
+      }
       // ハンマーのチームが得点したら次のチームへ。0点なら同じチームが持ち続ける
       if (res.team === g.hammer && res.points > 0) g.hammer = nextTeam(g.teams, g.hammer);
       g.phase = 'result';
@@ -343,17 +351,24 @@ export class GameHost {
     const st = throwState(g, pid, now);
     if (!st.ok) { delete this.botPlan[pid]; return; }
     let bp = this.botPlan[pid];
+    // ハンマーの最後の一投は、投げる前に少し狙って考える（その間、全員に予測が見える）
+    const hammerShot = pid === g.hammerPid && st.done === g.stones - 1;
+    const THINK = 2200;
     if (!bp || bp.k !== st.done) {
-      const earliest = Math.max(now, g.endStartAt) + 700;
+      const earliest = Math.max(now, g.endStartAt) + (hammerShot ? THINK + 600 : 700);
       const latest = Math.min(st.deadline - 1200, earliest + 7000);
       const at = latest > earliest ? earliest + Math.random() * (latest - earliest) : now + 100;
       const y = SHEET.CY + (Math.random() - 0.5) * SHEET.W * 0.65;
       bp = this.botPlan[pid] = { at, k: st.done, y };
       this.store.set(`aims/${pid}`, { y, a: 0, p: 0, s: 0, d: 0 });
     }
+    if (hammerShot && !bp.shot && now >= bp.at - THINK && this.world.isSettled()) {
+      bp.shot = planShot(this.world, g.roster[pid], 1, bp.y);
+      this.store.set(`aims/${pid}`, { y: bp.shot.y, a: bp.shot.aimAngle, p: bp.shot.power, s: bp.shot.spin, d: 1, v: 1 });
+    }
     if (now < bp.at) return;
     if (this.world.stones.some(s => !s.out && Math.hypot(s.x - SHEET.SPAWN_X, s.y - bp.y) < R * 3)) return;
-    const shot = planShot(this.world, g.roster[pid], 1, bp.y);
+    const shot = bp.shot || planShot(this.world, g.roster[pid], 1, bp.y);
     this.store.set(`aims/${pid}`, { y: shot.y, a: shot.aimAngle, p: shot.power, s: shot.spin, d: 0 });
     this.spawn(pid, `${pid}_${g.end}_${st.done + 1}`, shot, 0);
     delete this.botPlan[pid];

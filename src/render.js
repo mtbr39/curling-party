@@ -13,7 +13,22 @@ const WARN = '#E4572E';
 const FONT = '"Inter", "M PLUS 1p", "Helvetica Neue", Arial, sans-serif';
 const MONO = '"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
 const VIEW = { x0: -14, x1: SHEET.L + 12 };   // 表示するワールド x の範囲（下端〜上端）
-const LANE_PX = 74;                            // シートの下に確保するレーン（タイマー・名前）の高さ
+// シートの下のレーン（各プレイヤーのタイマー・名前・残りの石）。単位は画面ピクセル
+export const LANE = {
+  ring: 18,       // タイマーの円の半径
+  ringW: 3.5,     // タイマーの円の線の太さ
+  time: 13,       // 秒数の文字サイズ
+  name: 14,       // 名前の文字サイズ
+  dot: 4.5,       // 残りの石（丸）の半径
+  dotGap: 12,     // 残りの石の間隔
+  perRow: 6,      // 残りの石を1行に並べる数
+  slot: 80,       // プレイヤー同士の横の間隔（これより近いとずらす）
+};
+// 上から順に: シートの端 → タイマーの円 → 名前 → 残りの石
+const LANE_RING_Y = 10 + LANE.ring;
+const LANE_NAME_Y = LANE_RING_Y + LANE.ring + 6 + LANE.name / 2;
+const LANE_DOT_Y = LANE_NAME_Y + LANE.name / 2 + 6 + LANE.dot;
+const LANE_PX = LANE_DOT_Y + LANE.dot + LANE.dotGap + 6;   // シートの下に確保する高さ（石2行ぶん）
 const SIDE = 58;                               // シート左右の余白（ワールド単位）
 const GAUGE_LEN = 330;                         // 狙いゲージの長さ（ワールド単位）
 const TOP = 84, BOTTOM = 118;                  // 縦長画面のときの HUD 高さ
@@ -434,7 +449,7 @@ export class Renderer {
     const play = g && g.status === 'playing' && g.phase === 'play';
     const now = c.now;
     const u = this.u;
-    const ringX = -22 * u, nameX = -42 * u, dotX = -56 * u, ringR = 11 * u;
+    const ringX = -LANE_RING_Y * u, nameX = -LANE_NAME_Y * u, dotX = -LANE_DOT_Y * u, ringR = LANE.ring * u;
     for (const [pid, f] of Object.entries(c.figs)) {
       const team = g?.roster?.[pid] ?? c.players?.[pid]?.team;
       const y = f.labelY ?? f.homeY;
@@ -444,26 +459,27 @@ export class Renderer {
 
       // 名前
       ctx.fillStyle = INK;
-      ctx.font = `${me ? 800 : 600} ${10 * u}px ${MONO}`;
+      ctx.font = `${me ? 800 : 600} ${LANE.name * u}px ${MONO}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const name = (c.players?.[pid]?.name || '?').slice(0, 7);
       utext(ctx, name, nameX, y);
       ctx.fillStyle = teamColor(team);
-      ctx.fillRect(nameX - 8 * u, y - 14 * u, 2 * u, 28 * u);
+      const nw = ctx.measureText(name).width;
+      ctx.fillRect(nameX - (LANE.name / 2 + 2) * u, y - nw / 2, 2.5 * u, nw);
 
       if (play && g.roster?.[pid] != null) {
         const done = doneCount(g, pid) + (me ? c.pendingCount : 0);
         const N = g.stones;
-        const per = 8, gap = 8 * u;
+        const per = LANE.perRow, gap = LANE.dotGap * u;
         for (let i = 0; i < N; i++) {
           const dy = y + ((i % per) - (Math.min(N, per) - 1) / 2) * gap, dx = dotX - Math.floor(i / per) * gap;
-          ctx.beginPath(); ctx.arc(dx, dy, 2.8 * u, 0, Math.PI * 2);
-          if (i < done) { ctx.strokeStyle = 'rgba(20,20,20,.3)'; ctx.lineWidth = u; ctx.stroke(); }
+          ctx.beginPath(); ctx.arc(dx, dy, LANE.dot * u, 0, Math.PI * 2);
+          if (i < done) { ctx.strokeStyle = 'rgba(20,20,20,.3)'; ctx.lineWidth = 1.3 * u; ctx.stroke(); }
           else { ctx.fillStyle = teamColor(team); ctx.fill(); }
           if (pid === g.hammerPid && i === N - 1) {
             ctx.strokeStyle = INK; ctx.lineWidth = 1.2 * u;
-            ctx.beginPath(); ctx.arc(dx, dy, 4.6 * u, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(dx, dy, (LANE.dot + 2.5) * u, 0, Math.PI * 2); ctx.stroke();
           }
         }
         if (done < N) {
@@ -475,12 +491,12 @@ export class Renderer {
             frac = Math.max(0, Math.min(1, rem / g.interval));
             label = rem > 0 ? rem.toFixed(rem < 10 ? 1 : 0) : '0';
           }
-          ctx.lineWidth = 2.5 * u;
+          ctx.lineWidth = LANE.ringW * u;
           ctx.strokeStyle = 'rgba(20,20,20,.12)';
           ctx.beginPath(); ctx.arc(ringX, y, ringR, 0, Math.PI * 2); ctx.stroke();
           ctx.strokeStyle = frac < 0.3 ? WARN : INK;
           ctx.beginPath(); ctx.arc(ringX, y, ringR, 0, Math.PI * 2 * frac); ctx.stroke();
-          ctx.fillStyle = INK; ctx.font = `700 ${8.5 * u}px ${MONO}`;
+          ctx.fillStyle = frac < 0.3 ? WARN : INK; ctx.font = `800 ${LANE.time * u}px ${MONO}`;
           utext(ctx, label, ringX, y);
         }
       }
@@ -838,6 +854,7 @@ export class Renderer {
       '         （Shift: 精密）',
       '回転     ホイール ／ Q E（R リセット）',
       'スイープ Space 長押し',
+      'キャンセル 右クリック ／ Esc（引いている途中）',
       '軌跡     T で表示／非表示',
     ].forEach((t, i) => ctx.fillText(t, x, y + i * 18));
   }
@@ -859,7 +876,7 @@ export class Renderer {
       const pad = size * 0.35, sk = size * 0.25;
       const fit = Math.min(1, maxW / (tw + pad * 2 + sk * 2));
       const bw = (tw + pad * 2 + sk * 2) * fit;
-      const above = size * 0.78 * fit, below = (b.sub ? size * 0.75 : size * 0.22) * fit;
+      const above = size * 0.78 * fit, below = (b.note ? size * 1.05 : b.sub ? size * 0.75 : size * 0.22) * fit;
 
       // 対象の石（動いていれば追従、消えたら最後の位置）
       let A = null;
@@ -921,6 +938,12 @@ export class Renderer {
         ctx.fillStyle = INK;
         ctx.fillText(b.sub, 0, size * 0.62);
       }
+      if (b.note) {
+        // 小さな説明（例: スティールの意味）
+        ctx.font = `600 ${Math.round(size * 0.22)}px ${FONT}`;
+        ctx.fillStyle = 'rgba(20,20,20,.7)';
+        ctx.fillText(`（${b.note}）`, 0, size * (b.sub ? 0.95 : 0.62));
+      }
       ctx.restore();
     }
   }
@@ -932,6 +955,30 @@ export class Renderer {
     const cx = mid.x, cy = mid.y;
     const maxW = this.area.w - 8;
     ctx.textAlign = 'center';
+    // 冴えわたり: ハンマーの人が狙っている間、全員に常に表示
+    if (c.hammerPreview) {
+      const hp = c.hammerPreview;
+      const name = c.players?.[hp.pid]?.name || '?';
+      const l1 = '冴えわたり', l2 = `${name} の最後の一投を予測中`, l3 = '狙っている間、投げた結果が予測で見える';
+      ctx.font = `italic 900 24px ${FONT}`; const w1 = ctx.measureText(l1).width;
+      ctx.font = `700 12px ${MONO}`; const w2 = ctx.measureText(l2).width;
+      ctx.font = `600 11px ${FONT}`; const w3 = ctx.measureText(l3).width;
+      const bw = Math.min(maxW, Math.max(w1, w2, w3) + 36), bh = 78;
+      const bx = cx - bw / 2, by = cy + 40;   // ハンマータイムの演出（中央の高さ）と重ならないよう少し下
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = SHEET_C; ctx.fillRect(bx, by, bw, bh);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+      ctx.fillStyle = teamColor(hp.team); ctx.fillRect(bx, by, 6, bh);
+      ctx.fillStyle = INK;
+      ctx.font = `italic 900 24px ${FONT}`; ctx.fillText(l1, cx + 3, by + 30);
+      ctx.font = `700 12px ${MONO}`; ctx.fillText(l2, cx + 3, by + 50);
+      ctx.fillStyle = 'rgba(20,20,20,.65)';
+      ctx.font = `600 11px ${FONT}`; ctx.fillText(l3, cx + 3, by + 67);
+      ctx.restore();
+      ctx.textAlign = 'center';
+    }
     if (g.phase === 'play' && c.now < g.endStartAt) {
       const rem = (g.endStartAt - c.now) / 1000;
       ctx.fillStyle = 'rgba(20,20,20,.85)';

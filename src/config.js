@@ -24,7 +24,7 @@ export const FIELD = {
   houseR: 300,                // ハウス半径（一番外の円）
   ringRatios: [1, 2 / 3, 1 / 3], // ハウスの円の半径の比（本物は 12ft : 8ft : 4ft）
   buttonRatio: 0.106,         // ボタン半径 ÷ ハウス半径（本物は 0.5ft ÷ 6ft ≒ 0.083）
-  stoneR: 300/12,                 // ストーン半径（本物の比率だとハウス半径の約 1/12.6）
+  stoneR: 300/10,                 // ストーン半径（本物の比率だとハウス半径の約 1/12.6）
 
   hackMargin: 40,             // シートの手前端 → ハック
   hackToRelease: 60,          // ハック → 石のリリース位置
@@ -74,11 +74,10 @@ export const PHYS = {
 };
 // ↑ MU・CURL_K・VMAX などは「速さ 1 倍」のときの値。
 
-// 石の速さの倍率（ロビーで設定）。
+// 石の速さの倍率。ここを変えると石の速さが変わる（例: 0.5 = ゆっくり、2 = 速い）。
 // 速さを k 倍にすると、同じ道のりを 1/k の時間で進む。摩擦やカールの加速度を k² 倍にすれば、
 // 止まる位置も曲がり方もそのまま（時間だけが縮む）。物理はこの倍率を見て自動で調整する。
 export const SPEED = { k: 1 };
-export function setSpeedScale(k) { SPEED.k = Number(k) > 0 ? Number(k) : 1; }
 export const vmax = () => PHYS.VMAX * SPEED.k;
 
 // 投げる強さ(0..1) → 初速。まっすぐ・スイープなしで止まる距離が次の通りになるように決める
@@ -118,6 +117,7 @@ export const RULES = {
   SETTLE_WAIT: 1000,    // ms 石が全部止まってから得点計算するまでの待ち
   COUNTDOWN: 3500,      // ms エンド開始前のカウントダウン
   RESULT_TIME: 5500,    // ms エンド結果表示
+  BIG_END: 3,           // 1エンドでこの点数以上取ったら「ビッグエンド」
 };
 
 export const DEFAULT_SETTINGS = {
@@ -127,7 +127,6 @@ export const DEFAULT_SETTINGS = {
   ends: 4,
   interval: 30,
   stagger: 'auto',
-  speed: 1,            // 石の速さの倍率（止まる位置は変わらない）
 };
 
 const PALETTE = ['#E4572E', '#2B6CB0', '#E8B931', '#2F9E6E', '#7A5BC7', '#1E1E1E', '#E86A9A', '#4FA3B8'];

@@ -1,5 +1,5 @@
 // 画面遷移・ルーム管理・ホスト選出
-import { DEFAULT_SETTINGS, teamColor, teamName, setSpeedScale } from './config.js';
+import { DEFAULT_SETTINGS, teamColor, teamName } from './config.js';
 import { LocalStore, FirebaseStore, firebaseConfigured } from './store.js';
 import { GameHost } from './host.js';
 import { GameClient } from './client.js';
@@ -145,8 +145,6 @@ function onRoomChange() {
     return;
   }
   if (S.players[pid]) S.joinedOnce = true;
-  // 石の速さはルームの設定。ホストも全プレイヤーも同じ値で物理を回す
-  setSpeedScale(meta.settings?.speed ?? DEFAULT_SETTINGS.speed);
   electHost();
   const amHost = meta.hostId === pid;
   if (amHost && !S.host) {
@@ -221,7 +219,6 @@ function renderLobby() {
   setVal('#s-stones', set.stones);
   setVal('#s-ends', set.ends);
   setVal('#s-interval', set.interval);
-  setVal('#s-speed', set.speed);
   setVal('#s-stagger', set.stagger === 'auto' ? 'auto' : String(set.stagger));
   $('#row-teams').hidden = set.mode !== 'team';
   $('#stagger-note').textContent = `→ ${staggerSec(set, nTeams)}秒ずつずれてスタート`;
@@ -246,7 +243,6 @@ function initLobby() {
   $('#s-stones').onchange = upd('stones');
   $('#s-ends').onchange = upd('ends');
   $('#s-interval').onchange = upd('interval');
-  $('#s-speed').onchange = upd('speed');
   $('#s-stagger').onchange = upd('stagger', v => (v === 'auto' ? 'auto' : Number(v)));
   $('#btn-addbot').onclick = () => S.host?.addBot();
   $('#btn-rmbot').onclick = () => S.host?.removeBot();

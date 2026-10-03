@@ -4,7 +4,7 @@ import { SHEET, STONE_R, PHYS, RULES, SPEED, teamColor, teamName, powerToSpeed }
 import { World, makeStone, runSolo } from './physics.js';
 import { throwState, doneCount, deadlineFor, isGuarding } from './rules.js';
 import { decodeStone, normalizeGame } from './host.js';
-import { Renderer } from './render.js';
+import { Renderer, LANE } from './render.js';
 import { sfx, unlockAudio } from './sfx.js';
 
 const R = STONE_R;
@@ -29,6 +29,7 @@ export class GameClient {
     this.myShots = [];          // 自分の投球の記録（軌跡＋投げた条件）。自分の画面だけに残す
     this.showShots = true;
     this.predictions = [];
+    this.seenStones = new Set();
     this.hammerPreview = null;  // ハンマーの最後の一投の結果予測
     this.shake = 0;
     this.now = store.serverNow();
@@ -117,6 +118,7 @@ export class GameClient {
     if (!prev || prev.end !== g.end) {
       this.pending = [];
       this.myShots = [];   // 自分の軌跡はエンドごとにリセット
+      this.seenStones = new Set();
       this.trails.clear();
       this.fx.shields = [];
       if (!this.host) this.ownWorld.clear();
@@ -193,9 +195,32 @@ export class GameClient {
         break;
       }
       case 'hammer':
-        this.banner({ key: 'h' + e.t, text: 'ハンマータイム', sub: this.players[e.pid]?.name || '', color: col, size: 40, max: 2.2 });
-        if (e.pid === this.pid) this.showToast(`最後の一投！ ${this.game?.interval || 10}秒以内に投げよう`);
+        this.banner({
+          key: 'h' + e.t, text: 'ハンマータイム', sub: this.players[e.pid]?.name || '',
+          note: '冴えわたり：狙っている間、投げた結果が予測で見える', color: col, size: 44, max: 4,
+        });
+        if (e.pid === this.pid) {
+          this.showToast(`最後の一投！ 引いて狙うと結果の予測が見える（${this.game?.interval || 10}秒以内）`);
+          this.toast.max = 5;
+        }
         sfx.go();
+        break;
+      case 'steal':
+        this.banner({
+          key: 'st' + e.t, text: 'スティール！！', sub: `${this.teamLabel(e.team)}  +${e.points}`,
+          note: 'ハンマーを持たないチームが得点', color: col, size: 50, max: 3.4,
+        });
+        this.shake = Math.max(this.shake, 8);
+        sfx.tech(3);
+        break;
+      case 'bigend':
+        this.banner({
+          key: 'be' + e.t, text: 'ビッグエンド！！！', sub: `${this.teamLabel(e.team)}  +${e.points}`,
+          note: `1エンドで${RULES.BIG_END}点以上の大量得点`, color: col, size: 54, max: 3.6,
+        });
+        this.shake = Math.max(this.shake, 12);
+        this.bigBurst(col);
+        sfx.tech(5);
         break;
       case 'reject':
         if (e.pid === this.pid) {
@@ -214,6 +239,35 @@ export class GameClient {
     if (this.fx.banners.length > 3) this.fx.banners.shift();
   }
   showToast(text) { this.toast = { text, t: 0, max: 2.2 }; }
+
+  // 投げる音の高さ: 参加順に「ドレミソラ」の音階から割り当てる（重なってもきれいに響く）
+  pitchFor(pid) {
+    const ids = Object.keys(this.players).sort((a, b) => (this.players[a].joinedAt || 0) - (this.players[b].joinedAt || 0));
+    const i = Math.max(0, ids.indexOf(pid));
+    const scale = [523.25, 587.33, 659.25, 783.99, 880.0];   // C5 D5 E5 G5 A5
+    return scale[i % scale.length] * (i >= scale.length ? 2 : 1);
+  }
+
+  // 他の人の石が投げられたら、その人の高さで鳴らす（自分の石は投げた瞬間に鳴らしている）
+  soundNewStones() {
+    for (const s of this.world.stones) {
+      if (this.seenStones.has(s.id)) continue;
+      this.seenStones.add(s.id);
+      if (s.owner && s.owner !== this.pid && s.moving && !s.out) sfx.throw(this.pitchFor(s.owner));
+    }
+  }
+
+  // ビッグエンド用: ハウス全体に何度も弾ける
+  bigBurst(color) {
+    for (let i = 0; i < 6; i++) {
+      setTimeout(() => {
+        const a = Math.random() * Math.PI * 2, r = Math.random() * SHEET.HOUSE_R;
+        const x = SHEET.TEE_X + Math.cos(a) * r, y = SHEET.CY + Math.sin(a) * r;
+        this.burst(x, y, color, 30, 1100);
+        this.fx.rings.push({ x, y, t: 0, max: 0.8, color, size: 160 });
+      }, i * 140);
+    }
+  }
 
   burst(x, y, color, n, speed) {
     for (let i = 0; i < n; i++) {
@@ -397,7 +451,7 @@ export class GameClient {
     }
     const f = this.figs[this.pid];
     if (f) f.lungeT = 0;
-    sfx.throw();
+    sfx.throw(this.pitchFor(this.pid));
   }
 
   // ------------------------------------------------------------ フレーム
@@ -444,6 +498,7 @@ export class GameClient {
     this.updateShots();
     this.updatePredictions();
     this.updateHammerPreview();
+    this.soundNewStones();
     this.updateFigures(dt);
     this.updateFx(dt);
     this.sendAim(t);
@@ -471,7 +526,7 @@ export class GameClient {
     if (t - this.lastAimSent < 110) return;
     if (this.game?.roster?.[this.pid] == null) return;
     const a = this.aim;
-    const v = { y: Math.round(a.y * 10) / 10, a: Math.round(a.angle * 1000) / 1000, p: Math.round(a.power * 1000) / 1000, s: a.spin, d: a.dragging ? 1 : 0 };
+    const v = { y: Math.round(a.y * 10) / 10, a: Math.round(a.angle * 1000) / 1000, p: Math.round(a.power * 1000) / 1000, s: a.spin, d: a.dragging ? 1 : 0, v: a.dragging && a.valid ? 1 : 0 };
     const key = JSON.stringify(v);
     if (key === this.lastAimKey) return;
     this.lastAimKey = key;
@@ -502,11 +557,22 @@ export class GameClient {
   }
 
   // ハンマーの最後の一投: 狙っている間、他の石との衝突も含めて「投げたらどうなるか」を丸ごと計算する
+  // ハンマーの人が狙っている間は、本人だけでなく全員の画面に出す（届いた狙いから各自で同じ計算をする）
   updateHammerPreview() {
-    const g = this.game, a = this.aim, ms = this.myState;
-    const isHammerShot = g && ms?.ok && g.hammerPid === this.pid && ms.done === g.stones - 1;
-    if (!isHammerShot || !a.dragging || !a.valid) { this.hammerPreview = null; this.hpKey = null; return; }
-    const key = [a.y.toFixed(1), a.angle.toFixed(4), a.power.toFixed(4), a.spin].join('|');
+    const g = this.game;
+    const hp = g?.hammerPid;
+    let a = null;
+    if (g && g.phase === 'play' && g.hammerUnlockAt && hp && doneCount(g, hp) === g.stones - 1) {
+      if (hp === this.pid) {
+        const me = this.aim;
+        if (this.myState?.ok && me.dragging && me.valid) a = { y: me.y, angle: me.angle, power: me.power, spin: me.spin };
+      } else {
+        const r = this.aims[hp];
+        if (r?.d && r?.v) a = { y: r.y, angle: r.a || 0, power: r.p || 0, spin: r.s || 0 };
+      }
+    }
+    if (!a) { this.hammerPreview = null; this.hpKey = null; return; }
+    const key = [hp, a.y.toFixed(1), a.angle.toFixed(4), a.power.toFixed(4), a.spin].join('|');
     const t = performance.now();
     if (key === this.hpKey || t - (this.hpAt || 0) < 60) return;
     this.hpKey = key; this.hpAt = t;
@@ -523,7 +589,7 @@ export class GameClient {
     }
     const speed = powerToSpeed(a.power);
     const mine = w.add(makeStone({
-      id: '_hammer', team: g.roster[this.pid], owner: this.pid, x: SHEET.SPAWN_X, y: a.y,
+      id: '_hammer', team: g.roster[hp], owner: hp, x: SHEET.SPAWN_X, y: a.y,
       vx: Math.cos(a.angle) * speed, vy: Math.sin(a.angle) * speed, spin: a.spin,
     }));
     const paths = new Map([[mine.id, { team: mine.team, mine: true, pts: [{ x: mine.x, y: mine.y }] }]]);
@@ -554,7 +620,7 @@ export class GameClient {
       p.pts.push(end);
       finals.push({ id, team: p.team, mine: p.mine, x: end.x, y: end.y, out: !!o });
     }
-    this.hammerPreview = { paths: [...paths.values()], finals };
+    this.hammerPreview = { pid: hp, team: g.roster[hp], paths: [...paths.values()], finals };
   }
 
   updateShots() {
@@ -605,7 +671,7 @@ export class GameClient {
     }
     // 左レーンのラベルが重ならないように並べる
     const list = Object.values(this.figs).sort((a, b) => a.homeY - b.homeY);
-    const gap = Math.min(50 / this.renderer.scale, SHEET.W / Math.max(1, list.length));
+    const gap = Math.min(LANE.slot / this.renderer.scale, SHEET.W / Math.max(1, list.length));
     let prev = -Infinity;
     for (const f of list) { f.slotY = Math.max(f.homeY, prev + gap); prev = f.slotY; }
     let next = Infinity;
