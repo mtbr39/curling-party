@@ -70,10 +70,36 @@ function tone(freq, dur, gain, type = 'sine', when = 0, slide = 0) {
 }
 
 export const sfx = {
-  hit(power) {
+  hit(power, slow = false) {
     const p = Math.min(1, power / 600);
+    if (slow) {
+      // スロー中: 低く、長く、重く響く
+      noise(0.3 + p * 0.3, 700 + p * 600, 1.2, 0.3 + p * 0.5);
+      tone(80 + p * 30, 0.5 + p * 0.4, 0.3 + p * 0.4, 'triangle', 0, 0.5);
+      tone(48, 1.1, 0.35, 'sine', 0, 0.7);
+      return;
+    }
     noise(0.08 + p * 0.1, 1800 + p * 1500, 1.2, 0.25 + p * 0.6);
     tone(140 + p * 60, 0.12 + p * 0.1, 0.2 + p * 0.4, 'triangle', 0, 0.5);
+  },
+  // 心臓の音「ドックン」: 低いドッと、少し弱いクン
+  heart() {
+    tone(62, 0.22, 0.55, 'sine', 0, 0.6);
+    noise(0.08, 140, 0.8, 0.25, 'lowpass');
+    tone(55, 0.2, 0.38, 'sine', 0.17, 0.6);
+  },
+  // スローに入る「ドゥーン」: こもりながら下がっていく
+  slowIn() {
+    const f = noise(0.9, 2200, 0.7, 0.2, 'lowpass');
+    if (f) f.frequency.exponentialRampToValueAtTime(160, ctx.currentTime + 0.8);
+    tone(240, 0.9, 0.16, 'sine', 0, 0.3);
+    tone(120, 1.2, 0.2, 'triangle', 0.05, 0.4);
+  },
+  // スローから戻る「シュワッ」: 上がっていく
+  slowOut() {
+    const f = noise(0.45, 300, 0.7, 0.12, 'lowpass');
+    if (f) f.frequency.exponentialRampToValueAtTime(3500, ctx.currentTime + 0.4);
+    tone(130, 0.4, 0.08, 'sine', 0, 2.5);
   },
   // 投げた瞬間: 氷の上を「しゅーっ」とすべっていく音に、きらきらした音がうっすら重なる（vol で他人の石は控えめに、voice で人ごとに和音を変える）
   throw(vol = 1, voice = 0) {

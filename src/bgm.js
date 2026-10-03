@@ -12,7 +12,32 @@ let listener = null;   // 鳴っている/止まっているが変わったら�
 // スライダーいっぱい（1）でも曲の元の大きさの半分にとどめ、効果音を邪魔しない
 const MAX = 0.5;
 
-function level() { return muted ? 0 : volume * MAX; }
+// 場面に合わせた音量の倍率: 最後の一投で消す（hush）、スロー中は小さく（duck）。なめらかに変える
+const DUCK = 0.35;
+let hush = 1, duck = 1, mix = 1, mixSec = 1, mixTimer = null;
+
+function level() { return muted ? 0 : Math.min(1, volume * MAX * mix); }
+
+function retarget(sec) {
+  mixSec = sec;
+  if (mixTimer) return;
+  let last = performance.now();
+  mixTimer = setInterval(() => {
+    const t = performance.now(), dt = (t - last) / 1000; last = t;
+    const want = hush * duck;
+    mix += (want - mix) * (1 - Math.exp(-dt * 3 / mixSec));   // mixSec 秒でほぼ届く
+    if (Math.abs(want - mix) < 0.005) { mix = want; clearInterval(mixTimer); mixTimer = null; notify(); }
+    if (el && !fadeTimer) el.volume = level();
+  }, 30);
+}
+
+// 最後の一投（ハンマー）を投げた瞬間に BGM を消す（0.2秒のフェード）。エンドが終わったら戻す
+export function setBgmHush(on) {
+  const h = on ? 0 : 1;
+  if (h === hush) return;
+  hush = h;
+  retarget(0.2);
+}
 
 // 実際に音が聞こえているか（再生中で、消音でも音量0でもない）
 function notify() { listener?.(!!el && !el.paused && level() > 0); }
@@ -49,6 +74,7 @@ export function startBgm() {
   if (playing) return;
   clearFade();
   playing = true;
+  hush = duck = mix = 1;
   idx = Math.floor(Math.random() * TRACKS.length);
   playTrack();
 }
@@ -70,6 +96,12 @@ export function stopBgm() {
   playing = false;
   clearFade();
   el?.pause();
+}
+
+// スロー演出中は BGM を小さくする（曲の速さはそのまま）
+export function setBgmSlow(on) {
+  duck = on ? DUCK : 1;
+  retarget(on ? 0.35 : 0.8);
 }
 
 export function setBgmVolume(v) {

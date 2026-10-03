@@ -2,21 +2,26 @@
 // 非ホストは自前で物理を回して予測し、ホストのスナップショットで補正する。
 import { SHEET, STONE_R, PHYS, RULES, SPEED, teamColor, teamName, powerToSpeed } from './config.js';
 import { World, makeStone, runSolo } from './physics.js';
-import { throwState, doneCount, deadlineFor, isGuarding, isLastShot } from './rules.js';
+import { throwState, doneCount, deadlineFor, slotSec, isGuarding, isLastShot, judgeTime } from './rules.js';
 import { decodeStone, normalizeGame } from './host.js';
 import { Renderer, LANE } from './render.js';
 import { sfx, unlockAudio } from './sfx.js';
-import { startBgm } from './bgm.js';
+import { startBgm, setBgmSlow, setBgmHush } from './bgm.js';
 
 const R = STONE_R;
 const MAX_DRAG = 280; // px
 const FIG_X = SHEET.SPAWN_X - 50;
+const WALK_SPEED = 240;   // 投げ終わった人がカーソルへ歩く速さ（ワールド単位/秒）
 
 export class GameClient {
   constructor({ store, pid, canvas, onFinal }) {
     this.store = store;
     this.pid = pid;
     this.canvas = canvas;
+    this.snapScale = 1;   // ホストから届いたスローの倍率
+    this.timeScale = 1;   // 今の時間の進む速さ
+    this.slowAmt = 0;     // スロー演出の濃さ（0〜1、描画用）
+    this.inSlow = false;
     this.onFinal = onFinal;
     this.renderer = new Renderer(canvas);
     this.ownWorld = new World();
@@ -87,6 +92,8 @@ export class GameClient {
 
   destroy() {
     this.dead = true;
+    if (this.inSlow) setBgmSlow(false);
+    setBgmHush(false);
     cancelAnimationFrame(this.raf);
     for (const u of this.unsubs) try { u(); } catch {}
     this.unbindInput();
@@ -148,7 +155,8 @@ export class GameClient {
     for (const s of this.ownWorld.stones) {
       if (s.pending && !ids.has(s.id) && nowP - s.pendingAt < 2000) temp.add(s);
     }
-    temp.advance(lag);
+    this.snapScale = v.sl || 1;
+    temp.advance(lag * this.snapScale);
     for (const s of temp.stones) {
       const old = this.ownWorld.get(s.id);
       if (old && old !== s) {
@@ -224,7 +232,8 @@ export class GameClient {
         sfx.tech(5);
         break;
       case 'skip':
-        if (e.sec >= 2) this.showToast(`全員投げ終えたので、待ち時間を${e.sec}秒つめた`);
+        // 全員投げ終えて待ち時間をつめた: 各自のタイマーの横に「−◯s」を出す
+        if (e.sec >= 2) this.fx.skip = { sec: e.sec, t: 0, max: 2.4 };
         break;
       case 'reject':
         if (e.pid === this.pid) {
@@ -289,7 +298,7 @@ export class GameClient {
     this.burst(e.x, e.y, '#141414', Math.round(4 + p * 14), 200 + p * 500);
     this.fx.rings.push({ x: e.x, y: e.y, t: 0, max: 0.35, color: '#141414', size: 20 + p * 40 });
     this.shake = Math.max(this.shake, p * 7);
-    sfx.hit(imp);
+    sfx.hit(imp, this.inSlow);
   }
 
   // ------------------------------------------------------------ 入力
@@ -333,6 +342,7 @@ export class GameClient {
 
   onPointerMove(e) {
     const a = this.aim;
+    this.cursor = this.renderer.toWorld(e.clientX, e.clientY);   // 投げ終わった後、自分の人間が歩いていく先
     if (a.dragging) {
       const k = e.shiftKey ? 0.25 : 1;
       a.fine = e.shiftKey;
@@ -359,7 +369,7 @@ export class GameClient {
     if (!g || g.roster?.[this.pid] == null) return;
     this.canvas.setPointerCapture?.(e.pointerId);
     this.setSweep(false);
-    Object.assign(this.aim, { dragging: true, dx: 0, dy: 0, valid: false, power: 0, pressX: e.clientX, pressY: e.clientY });
+    Object.assign(this.aim, { dragging: true, dx: 0, dy: 0, valid: false, power: 0, pressX: e.clientX, pressY: e.clientY, pressAt: this.store.serverNow() });
     this.px = e.clientX; this.py = e.clientY;
   }
 
@@ -431,7 +441,7 @@ export class GameClient {
       if (msg) this.showToast(msg);
       return;
     }
-    if (now > st.deadline) { this.showToast('時間切れ — 次の石の期限を待って'); return; }
+    if (judgeTime(st.deadline, now, this.aim.pressAt) > st.deadline) { this.showToast('時間切れ — 次の石の期限を待って'); return; }
     if (performance.now() - this.lastThrowAt < RULES.THROW_COOLDOWN) { this.showToast('連投は少し間をあけて'); return; }
     const y = this.aim.y;
     if (this.world.stones.some(s => !s.out && Math.hypot(s.x - SHEET.SPAWN_X, s.y - y) < R * 2.2)) {
@@ -442,7 +452,7 @@ export class GameClient {
     const vx = Math.cos(a.angle) * speed, vy = Math.sin(a.angle) * speed;
     const k = st.done + 1;
     const id = `${this.pid}_${g.end}_${k}`;
-    this.store.push('throws', { id, pid: this.pid, y, vx, vy, spin: a.spin, t: now });
+    this.store.push('throws', { id, pid: this.pid, y, vx, vy, spin: a.spin, t: now, p: Math.round(a.pressAt || now) });
     this.pending.push({ id, k, at: performance.now() });
     this.lastThrowAt = performance.now();
     this.lastPower = a.power;
@@ -465,12 +475,13 @@ export class GameClient {
     this.now = this.store.serverNow();
     const g = this.game;
 
+    this.updateSlow(dt);
     if (!this.host) {
       // スイープ状態をローカルにも反映
       const sw = new Set(Object.values(this.sweeps || {}).filter(Boolean));
       if (this.sweepId) sw.add(this.sweepId);
       for (const s of this.ownWorld.stones) s.sweep = s.moving && !s.out && sw.has(s.id);
-      this.ownWorld.advance(dt);
+      this.ownWorld.advance(dt * this.timeScale);
     }
     // スイープ対象が止まったら解除、Space 押しっぱなしで次の石に切り替え
     if (this.sweepId) {
@@ -533,6 +544,9 @@ export class GameClient {
     if (this.game?.roster?.[this.pid] == null) return;
     const a = this.aim;
     const v = { y: Math.round(a.y * 10) / 10, a: Math.round(a.angle * 1000) / 1000, p: Math.round(a.power * 1000) / 1000, s: a.spin, d: a.dragging ? 1 : 0, v: a.dragging && a.valid ? 1 : 0 };
+    if (a.dragging && a.pressAt) v.h = Math.round(a.pressAt);
+    const w = this.walkTarget(this.pid);
+    if (w) v.w = [Math.round(w.x), Math.round(w.y)];
     const key = JSON.stringify(v);
     if (key === this.lastAimKey) return;
     this.lastAimKey = key;
@@ -668,6 +682,33 @@ export class GameClient {
     }
   }
 
+  // 自分の石を全部投げ終えた人の歩く先（自分はカーソル、他の人は送られてきた位置）。なければ null
+  walkTarget(pid) {
+    const g = this.game;
+    if (!g || g.phase !== 'play' || g.roster?.[pid] == null) return null;
+    if (pid === this.pid) return this.myState?.why === 'done' && this.cursor ? this.cursor : null;
+    const w = this.aims[pid]?.w;
+    // 前のエンドの行き先が残っていても、そのエンドを投げ終えるまでは歩かない
+    return w && doneCount(g, pid) >= g.stones ? { x: w[0], y: w[1] } : null;
+  }
+
+  // 一定の速さで (tx, ty) へ歩く。向きは進む方向へなめらかに回し、止まったら足をそろえる
+  walkFig(f, tx, ty, dt) {
+    const dx = tx - f.x, dy = ty - f.y, d = Math.hypot(dx, dy);
+    const moving = d > 12;
+    if (moving) {
+      const st = Math.min(d, WALK_SPEED * dt);
+      f.x += dx / d * st; f.y += dy / d * st;
+      f.step = (f.step || 0) + st;
+      const want = Math.atan2(dy, dx);
+      let diff = want - (f.dir || 0);
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      f.dir = (f.dir || 0) + diff * (1 - Math.exp(-dt * 10));
+    }
+    f.walkAmp = (f.walkAmp || 0) + ((moving ? 1 : 0) - (f.walkAmp || 0)) * (1 - Math.exp(-dt * 8));
+    f.pose = 'walk';
+  }
+
   updateFigures(dt) {
     const g = this.game;
     const ids = g?.roster ? Object.keys(g.roster) : Object.keys(this.players);
@@ -680,15 +721,26 @@ export class GameClient {
       const sid = pid === this.pid ? this.sweepId : this.sweeps[pid];
       const s = sid && this.world.get(sid);
       let tx = FIG_X, ty = homeY;
+      const wt = this.walkTarget(pid);
       if (s && s.moving && !s.out) {
         f.pose = 'sweep';
+        f.away = true;
+        f.dir = 0;
         f.side = s.y > SHEET.CY ? 1 : -1;
         tx = s.x + s.ox - 28;
         ty = s.y + s.oy + f.side * 42;
-      } else if (Math.abs(f.x - FIG_X) > 30) {
-        f.pose = 'sweep';
-      } else f.pose = 'aim';
-      const follow = f.pose === 'sweep' && s ? 1 - Math.exp(-dt * 14) : 1 - Math.exp(-dt * 10);
+      } else if (wt) {
+        // 投げ終わったら、カーソルへ一定の速さで歩いていく（着いたら立ち止まる）
+        f.away = true;
+        this.walkFig(f, wt.x, wt.y, dt);
+        continue;
+      } else if (f.away) {
+        // 持ち場（投げる位置の横）へ歩いて戻る
+        if (Math.hypot(f.x - FIG_X, f.y - homeY) > 24) { this.walkFig(f, FIG_X, homeY, dt); continue; }
+        f.away = false;
+      }
+      if (!(s && s.moving && !s.out)) { f.pose = 'aim'; f.dir = 0; }
+      const follow = f.pose === 'sweep' ? 1 - Math.exp(-dt * 14) : 1 - Math.exp(-dt * 10);
       f.x += (tx - f.x) * follow;
       f.y += (ty - f.y) * follow;
       f.lungeT = (f.lungeT ?? 9) + dt;
@@ -708,15 +760,46 @@ export class GameClient {
     for (const f of list) f.labelY = f.labelY == null ? f.slotY : f.labelY + (f.slotY - f.labelY) * (1 - Math.exp(-dt * 12));
   }
 
+  // ハンマーのスロー演出: 倍率はホストが決める。入る・出るときに音と BGM を変える
+  updateSlow(dt) {
+    // ハンマータイム（最後の一投を考えている間）から BGM を消し、投げた石が全部止まったら戻す
+    const g = this.game;
+    const hp = g?.hammerPid;
+    let hush = false;
+    if (g?.phase === 'play' && hp && g.hammerUnlockAt) {
+      const thrown = doneCount(g, hp) + (hp === this.pid ? this.pending.length : 0) >= g.stones;
+      const stone = this.world.get(`${hp}_${g.end}_${g.stones}`);
+      hush = !(thrown && stone && this.world.isSettled());   // 石がまだ届いていないうちは戻さない
+      // 投げるまでは心臓の音「ドックン」。残り時間が減るほど速くなる
+      if (!thrown) {
+        const t = performance.now();
+        if (t >= (this.nextBeat || 0)) {
+          sfx.heart();
+          const left = Math.max(0, Math.min(1, (deadlineFor(g, hp, g.stones) - this.now) / (slotSec(g, hp, g.stones) * 1000)));
+          this.nextBeat = t + 520 + 480 * left;   // 約60 → 115 拍/分
+        }
+      }
+    }
+    setBgmHush(hush);
+    const ts = this.host ? this.host.timeScale : (this.world.isSettled() ? 1 : this.snapScale);
+    this.timeScale = ts;
+    const want = Math.max(0, Math.min(1, (1 - ts) / 0.7));
+    this.slowAmt += (want - this.slowAmt) * (1 - Math.exp(-dt * 8));
+    if (ts < 0.6 && !this.inSlow) { this.inSlow = true; sfx.slowIn(); setBgmSlow(true); }
+    else if (ts > 0.9 && this.inSlow) { this.inSlow = false; sfx.slowOut(); setBgmSlow(false); }
+  }
+
   updateFx(dt) {
     const fx = this.fx;
+    const sdt = dt * this.timeScale;   // 火花や波紋はスローに合わせてゆっくり
     for (const b of fx.banners) b.t += dt;
     fx.banners = fx.banners.filter(b => b.t < b.max);
     for (const p of fx.particles) {
-      p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.9; p.vy *= 0.9;
+      const k = Math.pow(0.9, this.timeScale);
+      p.t += sdt; p.x += p.vx * sdt; p.y += p.vy * sdt; p.vx *= k; p.vy *= k;
     }
     fx.particles = fx.particles.filter(p => p.t < p.max);
-    for (const r of fx.rings) r.t += dt;
+    for (const r of fx.rings) r.t += sdt;
     fx.rings = fx.rings.filter(r => r.t < r.max);
     // ガードのマーク: どちらかの石が場外に出るか、止まった状態でガードが崩れたら消す
     for (const s of fx.shields) s.t += dt;
@@ -727,6 +810,7 @@ export class GameClient {
       return isGuarding(g, s);
     });
     for (const f of fx.floats) f.t += dt;
+    if (fx.skip && (fx.skip.t += dt) >= fx.skip.max) fx.skip = null;
     fx.floats = fx.floats.filter(f => f.t < f.max);
     if (this.toast) this.toast.t += dt;
     this.shake *= Math.exp(-dt * 9);

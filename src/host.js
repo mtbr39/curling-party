@@ -1,9 +1,9 @@
 // ホスト（部屋の代表クライアント）が実行する権威側ロジック。
 // 物理・タイマー・得点・技判定・CPU をここで処理し、結果をストアへ書き込む。
-import { SHEET, STONE_R, PHYS, RULES, DEFAULT_SETTINGS, vmax } from './config.js';
+import { SHEET, STONE_R, PHYS, RULES, SPEED, DEFAULT_SETTINGS, vmax } from './config.js';
 import { World, makeStone, advanceSolo } from './physics.js';
 import {
-  tk, staggerSec, doneCount, deadlineFor, throwState, scoreEnd, nextTeam, distToTee, isGuarding,
+  tk, staggerSec, doneCount, deadlineFor, throwState, judgeTime, isHolding, scoreEnd, nextTeam, distToTee, isGuarding,
 } from './rules.js';
 import { planShot } from './bot.js';
 
@@ -17,6 +17,7 @@ export class GameHost {
     this.meta = null;
     this.players = {};
     this.sweeps = {};
+    this.aims = {};
     this.game = null;
     this.throwInfo = {};
     this.takeouts = {};
@@ -27,6 +28,10 @@ export class GameHost {
     this.unsubs = [];
     this.world.on('out', e => this.onOut(e));
     this.world.on('rest', e => this.onRest(e));
+    this.world.on('hit', e => this.onSlowHit(e));
+    this.timeScale = 1;      // スロー演出中は 1 より小さい（全員の画面に snapshot で伝える）
+    this.slowHitUntil = 0;
+    this.hammerStone = null; // このエンドのハンマーの一投の石
   }
 
   get settings() { return { ...DEFAULT_SETTINGS, ...(this.meta?.settings || {}) }; }
@@ -45,6 +50,7 @@ export class GameHost {
       s.onValue('meta', v => { this.meta = v; this.assignTeams(); }),
       s.onValue('players', v => { this.players = v || {}; this.assignTeams(); }),
       s.onValue('sweeps', v => { this.sweeps = v || {}; }),
+      s.onValue('aims', v => { this.aims = v || {}; }),
       s.onChildAdded('throws', (k, v) => this.onThrow(k, v)),
     );
     this.last = performance.now();
@@ -171,6 +177,9 @@ export class GameHost {
     this.throwInfo = {};
     this.takeouts = {};
     this.botPlan = {};
+    this.botWalk = {};
+    this.hammerStone = null;
+    this.timeScale = 1;
     this.store.remove('events');
     this.store.remove('throws');
     this.store.remove('sweeps');
@@ -193,7 +202,8 @@ export class GameHost {
     const st = throwState(g, v.pid, Math.max(now, g.endStartAt));
     if (!st.ok || this.world.get(v.id)) { reject(st.why || 'dup'); return; }
     // 間に合ったかは「投げた時刻」で判定（届くのが遅れても OK。時計のずれ分だけ少し許す）
-    if ((v.t || now) > st.deadline + RULES.CLOCK_TOLERANCE) { reject('late'); return; }
+    // 期限までに押し始めていれば、押している間に期限を過ぎても OK
+    if (judgeTime(st.deadline, v.t || now, v.p) > st.deadline + RULES.CLOCK_TOLERANCE) { reject('late'); return; }
     this.spawn(v.pid, v.id, v, Math.min(0.3, Math.max(0, (now - v.t) / 1000)));
   }
 
@@ -212,6 +222,7 @@ export class GameHost {
     this.throwInfo[id] = { team, owner: pid };
     g.stats[pid] ||= { t: 0, l: 0 };
     g.stats[pid].t++;
+    if (pid === g.hammerPid && doneCount(g, pid) >= g.stones) this.hammerStone = id;
     this.skipIdle(this.now());
     this.calmSince = 0; // 新しい石が動き出したので「止まってからの時間」はやり直し
     this.writeGame();
@@ -248,6 +259,28 @@ export class GameHost {
     }
   }
 
+  // ------------------------------------------------------------ ハンマーのスロー演出
+  // ハンマーの一投が出てから、石どうしがぶつかったらスロー
+  onSlowHit(e) {
+    if (!this.hammerStone || !this.world.get(this.hammerStone)) return;
+    if (e.impulse / SPEED.k < 40) return;
+    this.slowHitUntil = performance.now() + RULES.SLOW_HIT_MS;
+  }
+
+  // 時間の進む速さ: ぶつかった直後と、ハンマーの石がハウスの近くで止まりかけている間はゆっくり
+  updateSlow(dt) {
+    const hs = this.hammerStone && this.world.get(this.hammerStone);
+    let target = 1;
+    if (hs && !this.world.isSettled()) {
+      const v = Math.hypot(hs.vx, hs.vy) / SPEED.k;
+      if (performance.now() < this.slowHitUntil) target = RULES.SLOW_HIT;
+      else if (hs.moving && !hs.out && v < RULES.SLOW_STOP_V && hs.x > SHEET.TEE_X - SHEET.HOUSE_R - 150) target = RULES.SLOW_STOP;
+    }
+    // 入るときはすばやく、戻るときは少しゆっくり
+    this.timeScale += (target - this.timeScale) * (1 - Math.exp(-dt * (target < this.timeScale ? 14 : 5)));
+    if (target === 1 && this.timeScale > 0.97) this.timeScale = 1;
+  }
+
   // ------------------------------------------------------------ メインループ
   tick() {
     const t = performance.now();
@@ -259,7 +292,8 @@ export class GameHost {
     const sweeping = new Set(Object.values(this.sweeps || {}).filter(Boolean));
     for (const s of this.world.stones) s.sweep = s.moving && !s.out && sweeping.has(s.id);
 
-    this.world.advance(dt);
+    this.updateSlow(dt);
+    this.world.advance(dt * this.timeScale);
 
     if (g && g.status === 'playing') {
       if (g.phase === 'play') this.tickPlay(now);
@@ -294,7 +328,7 @@ export class GameHost {
         const done = st.t + st.l;
         if (done >= N) break;
         const dl = deadlineFor(g, pid, done + 1);
-        if (now > dl + RULES.DEADLINE_GRACE) {
+        if (now > dl + RULES.DEADLINE_GRACE && !isHolding(this.aims[pid], dl, now - RULES.DEADLINE_GRACE)) {
           st.l++;
           changed = true;
           this.event({ type: 'lost', pid, team: g.roster[pid] });
@@ -366,10 +400,24 @@ export class GameHost {
     this.event({ type: 'skip', sec: Math.round((first - now) / 1000) });
   }
 
+  // 投げ終わった CPU も歩き回る: ときどき行き先を決めて、人と同じように aims の w で知らせる
+  botWander(pid, now) {
+    const w = (this.botWalk ||= {})[pid];
+    if (w && now < w.at) return;
+    // 半分くらいはハウスのまわりへ（結果が気になる）。ほかはシートのどこか
+    const nearHouse = Math.random() < 0.45;
+    const x = nearHouse
+      ? SHEET.TEE_X + (Math.random() - 0.5) * SHEET.HOUSE_R * 2.4
+      : SHEET.SPAWN_X + Math.random() * (SHEET.BACK_X - SHEET.SPAWN_X);
+    const y = 40 + Math.random() * (SHEET.W - 80);
+    this.botWalk[pid] = { at: now + 2000 + Math.random() * 4500 };
+    this.store.update(`aims/${pid}`, { w: [Math.round(x), Math.round(y)] });
+  }
+
   tickBot(pid, now) {
     const g = this.game;
     const st = throwState(g, pid, now);
-    if (!st.ok) { delete this.botPlan[pid]; return; }
+    if (!st.ok) { delete this.botPlan[pid]; if (st.why === 'done') this.botWander(pid, now); return; }
     let bp = this.botPlan[pid];
     // 最後の一投（冴えわたり）は、投げる前に少し狙って考える（その間、全員に予測が見える）
     const lastShot = st.done === g.stones - 1;
@@ -398,7 +446,8 @@ export class GameHost {
 
   writeSnapshot() {
     const s = this.world.stones.map(encodeStone);
-    this.store.set('stones', { ts: this.now(), s });
+    const slow = this.timeScale < 0.999 ? { sl: Math.round(this.timeScale * 100) / 100 } : {};
+    this.store.set('stones', { ts: this.now(), s, ...slow });
   }
 }
 

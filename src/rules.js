@@ -38,6 +38,17 @@ export function deadlineFor(game, pid, k) {
   return game.endStartAt + (off + k * game.interval) * 1000 - (game.saved || 0);
 }
 
+// 期限の判定に使う時刻: 期限までに押し始めて、期限 + HOLD_MAX までに離したなら「押し始めた時刻」
+export function judgeTime(deadline, throwAt, pressAt) {
+  if (pressAt != null && pressAt <= deadline + RULES.CLOCK_TOLERANCE && throwAt <= deadline + RULES.HOLD_MAX) return pressAt;
+  return throwAt;
+}
+
+// 期限を過ぎても、期限までに押し始めて引いている途中なら石を消さない
+export function isHolding(aim, deadline, now) {
+  return !!(aim?.d && aim.h && aim.h <= deadline + RULES.CLOCK_TOLERANCE && now <= deadline + RULES.HOLD_MAX);
+}
+
 export function isHammerLocked(game, pid, done) {
   return pid === game.hammerPid && done === game.stones - 1 && !game.hammerUnlockAt;
 }

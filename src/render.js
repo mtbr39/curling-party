@@ -119,8 +119,38 @@ export class Renderer {
       this.drawStatus(ctx, c, 16, this.h - BOTTOM + 14, this.w - 32);
     }
     this.drawSling(ctx, c);
+    this.drawSlow(ctx, c);
     this.drawBanners(ctx, c);
     this.drawCenter(ctx, c);
+  }
+
+  // ハンマーのスロー演出: 周りを暗くし、映画のような黒い帯を上下に出す
+  drawSlow(ctx, c) {
+    const k = c.slowAmt || 0;
+    if (k < 0.02) return;
+    const w = this.w, h = this.h;
+    ctx.save();
+    const gr = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.hypot(w, h) * 0.6);
+    gr.addColorStop(0, 'rgba(20,20,20,0)');
+    gr.addColorStop(1, `rgba(20,20,20,${0.45 * k})`);
+    ctx.fillStyle = gr;
+    ctx.fillRect(0, 0, w, h);
+    const bh = Math.round(h * 0.075 * k);
+    ctx.fillStyle = INK;
+    ctx.fillRect(0, 0, w, bh);
+    ctx.fillRect(0, h - bh, w, bh);
+    if (bh > 18) {
+      ctx.globalAlpha = Math.min(1, (bh - 18) / 20);
+      ctx.fillStyle = '#FBFBF9';
+      ctx.textBaseline = 'middle';
+      ctx.font = `italic 900 ${Math.min(26, bh * 0.5)}px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.fillText('HAMMER SHOT', 20, bh / 2);
+      ctx.font = `700 ${Math.min(13, bh * 0.28)}px ${MONO}`;
+      ctx.textAlign = 'right';
+      ctx.fillText(`SLOW ×${(c.timeScale ?? 1).toFixed(2)}`, w - 20, h - bh / 2);
+    }
+    ctx.restore();
   }
 
   // クリックした場所に出す表示（押した位置の丸と、引いている点線だけ）
@@ -471,16 +501,10 @@ export class Renderer {
       ctx.strokeStyle = 'rgba(20,20,20,.25)'; ctx.lineWidth = u;
       ctx.beginPath(); ctx.moveTo(ringX + ringR, y); ctx.lineTo(0, f.homeY); ctx.stroke();
 
-      // 名前
-      ctx.fillStyle = INK;
-      ctx.font = `${me ? 800 : 600} ${LANE.name * u}px ${MONO}`;
+      // 名前（スイープや歩き回りで持ち場を離れている間は人について行くので、ここには出さない）
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const name = (c.players?.[pid]?.name || '?').slice(0, 7);
-      utext(ctx, name, nameX, y);
-      ctx.fillStyle = teamColor(team);
-      const nw = ctx.measureText(name).width;
-      ctx.fillRect(nameX - (LANE.name / 2 + 2) * u, y - nw / 2, 2.5 * u, nw);
+      if (!f.away) this.drawName(ctx, c, pid, team, nameX, y);
 
       if (play && g.roster?.[pid] != null) {
         const done = doneCount(g, pid) + (me ? c.pendingCount : 0);
@@ -504,6 +528,7 @@ export class Renderer {
             const rem = (dl - now) / 1000;
             frac = Math.max(0, Math.min(1, rem / slotSec(g, pid, done + 1)));
             label = rem > 0 ? rem.toFixed(rem < 10 ? 1 : 0) : '0';
+            if (me && rem <= 0 && c.aim.dragging && c.aim.pressAt <= dl) label = 'HOLD';
           }
           ctx.lineWidth = LANE.ringW * u;
           ctx.strokeStyle = 'rgba(20,20,20,.12)';
@@ -512,6 +537,19 @@ export class Renderer {
           ctx.beginPath(); ctx.arc(ringX, y, ringR, 0, Math.PI * 2 * frac); ctx.stroke();
           ctx.fillStyle = frac < 0.3 ? WARN : INK; ctx.font = `800 ${LANE.time * u}px ${MONO}`;
           utext(ctx, label, ringX, y);
+          // 待ち時間をつめたとき: タイマーの右に「−◯s」がぽんと出て、上へ浮きながら消える
+          const sk = c.fx.skip;
+          if (sk && dl !== Infinity) {
+            const k = sk.t / sk.max;
+            const pop = sk.t < 0.18 ? 0.6 + sk.t / 0.18 * 0.6 : 1.2 - Math.min(0.2, (sk.t - 0.18) * 1.5);
+            ctx.globalAlpha = k < 0.7 ? 1 : Math.max(0, 1 - (k - 0.7) / 0.3);
+            ctx.fillStyle = '#E4572E';
+            ctx.font = `900 ${LANE.time * u * pop}px ${MONO}`;
+            ctx.textAlign = 'left';
+            utext(ctx, `−${sk.sec}s`, ringX + k * 10 * u, y + ringR + 5 * u);
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = 1;
+          }
         }
       }
       ctx.textBaseline = 'alphabetic';
@@ -520,6 +558,27 @@ export class Renderer {
 
   drawFigures(ctx, c) {
     for (const [pid, f] of Object.entries(c.figs)) drawPerson(ctx, f, pid === c.pid);
+    // 持ち場を離れている人（スイープ中・歩き回り中・戻る途中）の名前は、人のすぐ下（画面で）について行く
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const [pid, f] of Object.entries(c.figs)) {
+      if (!f.away) continue;
+      const team = c.game?.roster?.[pid] ?? c.players?.[pid]?.team;
+      this.drawName(ctx, c, pid, team, f.x - 80, f.y);
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // 名前とチーム色の線（画面では横書き。x, y はワールド座標）
+  drawName(ctx, c, pid, team, x, y) {
+    const u = this.u;
+    ctx.fillStyle = INK;
+    ctx.font = `${pid === c.pid ? 800 : 600} ${LANE.name * u}px ${MONO}`;
+    const name = (c.players?.[pid]?.name || '?').slice(0, 7);
+    utext(ctx, name, x, y);
+    ctx.fillStyle = teamColor(team);
+    const nw = ctx.measureText(name).width;
+    ctx.fillRect(x - (LANE.name / 2 + 2) * u, y - nw / 2, 2.5 * u, nw);
   }
 
   // 他のプレイヤーが狙っている様子（うすく）
@@ -554,23 +613,49 @@ export class Renderer {
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
 
-    // 回転表示（画面上方向から回転方向へ伸びる矢印）
-    if (Math.abs(a.spin) > 0.001) {
-      const sweep = a.spin * Math.PI * 1.4;
-      const st = Math.PI;               // ワールドの -x 側＝画面下から
-      ctx.strokeStyle = INK; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x, y, R + 7, Math.min(st, st + sweep), Math.max(st, st + sweep));
-      ctx.stroke();
-      const ea = st + sweep;
-      const ex = x + Math.cos(ea) * (R + 7), ey = y + Math.sin(ea) * (R + 7);
-      const dir = Math.sign(a.spin);
-      const tx = -Math.sin(ea) * dir, ty = Math.cos(ea) * dir;
-      ctx.beginPath();
-      ctx.moveTo(ex + tx * 5, ey + ty * 5);
-      ctx.lineTo(ex - tx * 2 + Math.cos(ea) * 4, ey - ty * 2 + Math.sin(ea) * 4);
-      ctx.lineTo(ex - tx * 2 - Math.cos(ea) * 4, ey - ty * 2 - Math.sin(ea) * 4);
-      ctx.closePath(); ctx.fillStyle = INK; ctx.fill();
+    // 回転表示: 石のまわりの太い矢印（回る向き）と、石の左の札（どっちに曲がるか・強さ）
+    {
+      const u = this.u, on = Math.abs(a.spin) > 0.001;
+      if (on) {
+        const sweep = a.spin * Math.PI * 1.6;
+        const st = Math.PI;               // ワールドの -x 側＝画面下から
+        const rr = R + 9;
+        ctx.strokeStyle = col; ctx.lineWidth = 4.5;
+        ctx.beginPath();
+        ctx.arc(x, y, rr, Math.min(st, st + sweep), Math.max(st, st + sweep));
+        ctx.stroke();
+        const ea = st + sweep;
+        const ex = x + Math.cos(ea) * rr, ey = y + Math.sin(ea) * rr;
+        const dir = Math.sign(a.spin);
+        const tx = -Math.sin(ea) * dir, ty = Math.cos(ea) * dir;
+        ctx.beginPath();
+        ctx.moveTo(ex + tx * 10, ey + ty * 10);
+        ctx.lineTo(ex - tx * 3 + Math.cos(ea) * 8, ey - ty * 3 + Math.sin(ea) * 8);
+        ctx.lineTo(ex - tx * 3 - Math.cos(ea) * 8, ey - ty * 3 - Math.sin(ea) * 8);
+        ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+      }
+      // 札（画面で石の左）。プラスの回転は右へ、マイナスは左へ曲がる
+      const pct = Math.round(Math.abs(a.spin) * 100);
+      const txt = on ? `${a.spin > 0 ? '↻ 右に曲がる' : '↺ 左に曲がる'} ${pct}%` : '回転なし';
+      const sub = 'ホイール / Q E';
+      ctx.save();
+      ctx.translate(x, y - R - 16);
+      ctx.rotate(Math.PI / 2);          // 画面で横書き（右端を石のそばに）
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.font = `800 ${12 * u}px ${MONO}`;
+      const tw = ctx.measureText(txt).width;
+      const ph = 20 * u, pw = tw + 14 * u;
+      ctx.globalAlpha = on ? 1 : 0.55;
+      ctx.fillStyle = on ? col : 'rgba(251,251,249,.9)';
+      ctx.fillRect(-pw, -ph / 2, pw, ph);
+      if (!on) { ctx.strokeStyle = 'rgba(20,20,20,.35)'; ctx.lineWidth = u; ctx.strokeRect(-pw, -ph / 2, pw, ph); }
+      ctx.fillStyle = on ? '#fff' : INK;
+      ctx.fillText(txt, -7 * u, 0);
+      ctx.font = `600 ${9.5 * u}px ${MONO}`;
+      ctx.fillStyle = 'rgba(20,20,20,.55)';
+      ctx.fillText(sub, -2 * u, ph / 2 + 9 * u);
+      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     if (!a.dragging) return;
@@ -846,7 +931,7 @@ export class Renderer {
     ctx.fillStyle = INK; ctx.font = `700 12px ${MONO}`;
     const pw = dragging ? c.aim.power : (c.lastPower ?? 0);
     const sp = c.aim.spin;
-    const spinTxt = `SPIN ${sp === 0 ? '0' : (sp > 0 ? '↻' : '↺') + Math.round(Math.abs(sp) * 100) + '%'}`;
+    const spinTxt = `SPIN ${sp === 0 ? '0' : (sp > 0 ? '↻右' : '↺左') + Math.round(Math.abs(sp) * 100) + '%'}`;
     const posTxt = `POS ${(c.aim.y - SHEET.CY >= 0 ? '+' : '') + (c.aim.y - SHEET.CY).toFixed(0)}`;
     ctx.fillText(`${(pw * 100).toFixed(1)}%`, px, py + 40);
     if (compact) {
@@ -1093,7 +1178,19 @@ function personParts(f) {
   const P = [];
   const cap = (x1, y1, x2, y2, r) => P.push([x1, y1, x2, y2, r]);
   const dot = (x, y, r) => P.push([x, y, x, y, r]);
-  if (f.pose === 'sweep') {
+  if (f.pose === 'walk') {
+    // 歩く: 足を前後に交互に出し、腕は逆に振る。ブラシは片手で持って運ぶ
+    const sw = Math.sin((f.step || 0) * 0.075) * (f.walkAmp || 0);
+    const bob = Math.abs(sw) * 1.2;
+    cap(0, -5, 15 * sw, -5, 3.8);                 // 脚
+    cap(0, 5, -15 * sw, 5, 3.8);
+    cap(-1, -11, -1, 11, 6.5 + bob * 0.3);        // 肩
+    cap(-1, -10, 2 - 11 * sw, -14, 2.6);          // 腕
+    cap(-1, 10, 2 + 11 * sw, 14, 2.6);
+    cap(-20 + 11 * sw, 15, 26 + 11 * sw, 15, 1.3); // 柄
+    cap(26 + 11 * sw, 8, 26 + 11 * sw, 22, 3.2);  // ブラシ
+    dot(3, 0, 7);                                 // 頭
+  } else if (f.pose === 'sweep') {
     const st = Math.sin(t * 13);
     const sd = -(f.side || 1); // 石のある側
     cap(-6, -4, -22 + st * 7, -6, 3.6);          // 脚
@@ -1150,6 +1247,7 @@ function drawPerson(ctx, f, me) {
 
   ctx.save();
   ctx.translate(f.x, f.y);
+  if (f.dir) ctx.rotate(f.dir);   // 歩いている向き
   ctx.drawImage(figCanvas, 0, 0, W, H, FB.x0 * FIG_SCALE, FB.y0 * FIG_SCALE, FB.w * FIG_SCALE, FB.h * FIG_SCALE);
   ctx.restore();
 }

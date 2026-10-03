@@ -64,12 +64,12 @@ export const STONE_R = FIELD.stoneR;
 export const PHYS = {
   MU: 100,            // 摩擦による減速 (unit/s^2)
   SWEEP_MU: 0.62,     // スイープ中の摩擦倍率
-  CURL_K: 20,         // 回転によるカールの強さ
+  CURL_K: 40,         // 回転によるカールの強さ
   CURL_V0: 140,       // 低速ほどよく曲がる
   SWEEP_CURL: 0.5,    // スイープ中のカール倍率
   RESTITUTION: 0.93,
   VMAX: 950,
-  MAX_ANGLE: 0.3,     // rad
+  MAX_ANGLE: 0.2,     // rad
   DT: 1 / 240,
 };
 // ↑ MU・CURL_K・VMAX などは「速さ 1 倍」のときの値。
@@ -114,11 +114,17 @@ export const RULES = {
   THROW_COOLDOWN: 700,  // ms 同じプレイヤーの連投間隔
   DEADLINE_GRACE: 1500, // ms 期限後、石を消すまで待つ時間（遅れて届く投球を受け付けるため）
   CLOCK_TOLERANCE: 300, // ms 投げた時刻の判定で許す時計のずれ
+  HOLD_MAX: 8000,       // ms 期限までに押し始めていれば、期限を過ぎてもこの間は引いて狙い続けられる
   SETTLE_WAIT: 1000,    // ms 石が全部止まってから得点計算するまでの待ち
   COUNTDOWN: 3500,      // ms エンド開始前のカウントダウン
   RESULT_TIME: 5500,    // ms エンド結果表示
   HAMMER_TIME: 2,       // ハンマーの最後の一投の持ち時間 = 一投の期限 × この倍率
   BIG_END: 3,           // 1エンドでこの点数以上取ったら「ビッグエンド」
+  // ハンマーの一投のスロー演出（時間の進む速さの倍率）
+  SLOW_HIT: 0.18,       // ぶつかった瞬間
+  SLOW_HIT_MS: 1100,    // ms ぶつかってからスローを続ける時間（実時間）
+  SLOW_STOP: 0.3,       // ハウスの近くで止まりかけているとき
+  SLOW_STOP_V: 70,      // この速さ（速さの倍率 1 換算）より遅くなったら「止まりかけ」
 };
 
 export const DEFAULT_SETTINGS = {
