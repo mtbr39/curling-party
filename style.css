@@ -125,7 +125,8 @@ h1 span { color: var(--paper); -webkit-text-stroke: 2px var(--ink); }
 @media (max-width: 860px) {
   #lobby:not([hidden]) { display: block; overflow: auto; }
   .lobby-body { display: block; }
-  .lobby-practice { height: 70vh; border-right: 0; border-bottom: 2px solid var(--ink); }
+  /* 練習シートは画面の高さいっぱい（上のバーの分だけ引く）。プレイヤーと設定はその下へスクロール */
+  .lobby-practice { height: 70vh; height: calc(100svh - 54px); border-right: 0; border-bottom: 2px solid var(--ink); }
   .lobby-grid { gap: 20px; padding: 20px 16px; overflow: visible; }
 }
 @media (max-width: 520px) {

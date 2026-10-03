@@ -29,6 +29,7 @@ const LANE_RING_Y = 10 + LANE.ring;
 const LANE_NAME_Y = LANE_RING_Y + LANE.ring + 6 + LANE.name / 2;
 const LANE_DOT_Y = LANE_NAME_Y + LANE.name / 2 + 6 + LANE.dot;
 const LANE_PX = LANE_DOT_Y + LANE.dot + LANE.dotGap + 6;   // シートの下に確保する高さ（石2行ぶん）
+const LANE_PX_PRACTICE = 10 + LANE.name + 8;                 // 練習シート: 名前だけ
 const SIDE = 58;                               // シート左右の余白（ワールド単位）
 const GAUGE_LEN = 330;                         // 狙いゲージの長さ（ワールド単位）
 const TOP = 84, BOTTOM = 118;                  // 縦長画面のときの HUD 高さ
@@ -51,9 +52,10 @@ function utext(ctx, text, x, y) {
 
 export class Renderer {
   // topBar: 縦長画面で上に重なる HTML のバーの高さ（ゲーム画面のボタン列）。点数表をその下から描く
-  constructor(canvas, { topBar = 0 } = {}) {
+  constructor(canvas, { topBar = 0, practice = false } = {}) {
     this.cv = canvas;
     this.topBar = topBar;
+    this.practice = practice;   // 練習シート: タイマーや残りの石がないので、シート下の列は名前だけ（シートを大きく）
     this.padBottom = 0;   // スマホの操作ボタン用に、縦長画面のシートの下に空ける高さ
     this.ctx = canvas.getContext('2d');
     this.resize();
@@ -75,7 +77,7 @@ export class Renderer {
     this.land = w >= h * 0.9 && w >= 720;
     this.mobile = !this.land && w < 720;          // スマホ: 下の HUD なし・点数表はボタンで開く
     this.laneK = this.mobile ? 0.72 : 1;          // シート下の列（タイマー・名前・残りの石）の大きさ
-    const lanePx = LANE_PX * this.laneK;
+    const lanePx = (this.practice ? LANE_PX_PRACTICE : LANE_PX) * this.laneK;
     if (this.land) {
       this.panelL = Math.max(240, Math.min(320, w * 0.24));
       this.panelR = Math.max(220, Math.min(320, w * 0.24));
@@ -570,13 +572,15 @@ export class Renderer {
       const team = g?.roster?.[pid] ?? c.players?.[pid]?.team;
       const y = f.labelY ?? f.homeY;
       const me = pid === c.pid;
-      ctx.strokeStyle = 'rgba(20,20,20,.25)'; ctx.lineWidth = u;
-      ctx.beginPath(); ctx.moveTo(ringX + ringR, y); ctx.lineTo(0, f.homeY); ctx.stroke();
+      if (!c.practice) {
+        ctx.strokeStyle = 'rgba(20,20,20,.25)'; ctx.lineWidth = u;
+        ctx.beginPath(); ctx.moveTo(ringX + ringR, y); ctx.lineTo(0, f.homeY); ctx.stroke();
+      }
 
       // 名前（スイープや歩き回りで持ち場を離れている間は人について行くので、ここには出さない）
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      if (!f.away) this.drawName(ctx, c, pid, team, nameX, y);
+      if (!f.away) this.drawName(ctx, c, pid, team, c.practice ? -(10 + LANE.name / 2) * u : nameX, y);
 
       if (play && g.roster?.[pid] != null && !c.practice) {
         const done = doneCount(g, pid) + (me ? c.pendingCount : 0);
@@ -853,7 +857,8 @@ export class Renderer {
       ctx.font = `italic 900 22px ${FONT}`;
       ctx.fillText('PRACTICE', x0, y0 + 6);
       ctx.font = `500 11px ${MONO}`; ctx.fillStyle = 'rgba(20,20,20,.55)';
-      ctx.fillText('ゲームが始まるまで、みんなで自由に投げて練習（点数なし・何投でも）', x0, y0 + 26);
+      ctx.fillText('ゲームが始まるまで、みんなで自由に練習', x0, y0 + 26);
+      ctx.fillText('点数なし・何投でも', x0, y0 + 42);
       return;
     }
     ctx.textAlign = 'left';

@@ -24,7 +24,7 @@ export class GameClient {
     this.slowAmt = 0;     // スロー演出の濃さ（0〜1、描画用）
     this.inSlow = false;
     this.onFinal = onFinal;
-    this.renderer = new Renderer(canvas, { topBar: practice ? 0 : 40 });
+    this.renderer = new Renderer(canvas, { topBar: practice ? 0 : 40, practice });
     this.ownWorld = new World();
     this.world = this.ownWorld;
     this.host = null;
