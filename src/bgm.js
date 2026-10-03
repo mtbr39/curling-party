@@ -10,7 +10,7 @@ let fadeTimer = null;
 let listener = null;   // 鳴っている/止まっているが変わったら呼ぶ
 
 // スライダーいっぱい（1）でも曲の元の大きさの 1/4 にとどめ、効果音を邪魔しない
-const MAX = 0.35;
+const MAX = 0.25;
 
 // 場面に合わせた音量の倍率: 最後の一投で消す（hush）、スロー中は小さく（duck）。なめらかに変える
 const DUCK = 0.35;

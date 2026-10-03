@@ -1,5 +1,6 @@
 // 石の物理シミュレーション（ホストもクライアントも同じものを使う）
 import { SHEET, STONE_R, PHYS, SPEED } from './config.js';
+import { isGuarding } from './rules.js';
 
 const R = STONE_R;
 const OUT_FADE = 0.9; // 秒: 場外になった石を消すまで
@@ -38,6 +39,8 @@ export class World {
 
   // 経過時間を固定刻みで進める
   advance(dt) {
+    // ガードストーンの印（止まっていて、ハウス内の味方の石を守っている）。ぶつかったときに少し重くなる
+    for (const g of this.stones) g.guard = !g.out && !g.moving && this.stones.some(s => isGuarding(g, s));
     this.acc += Math.min(dt, 2);
     let n = 0;
     // 刻み幅も速さの倍率に合わせる（どの倍率でも同じ回数の計算で同じ軌道になる）
@@ -135,10 +138,12 @@ function collide(a, b, world) {
   a.x -= nx * push; a.y -= ny * push;
   b.x += nx * push; b.y += ny * push;
   if (rel <= 0) return;
-  const j = rel * (1 + PHYS.RESTITUTION) / 2;
+  // 重さ: ふつうは同じ。ガードストーンだけ少し重い（はじかれにくく、当てた石は少し跳ね返る）
+  const ia = 1 / (a.guard ? PHYS.GUARD_MASS : 1), ib = 1 / (b.guard ? PHYS.GUARD_MASS : 1);
+  const j = rel * (1 + PHYS.RESTITUTION) / (ia + ib);
   const spA = Math.hypot(a.vx, a.vy), spB = Math.hypot(b.vx, b.vy);
-  a.vx -= j * nx; a.vy -= j * ny;
-  b.vx += j * nx; b.vy += j * ny;
+  a.vx -= j * ia * nx; a.vy -= j * ia * ny;
+  b.vx += j * ib * nx; b.vy += j * ib * ny;
   a.moving = b.moving = true;
   a.hit = b.hit = true;
   a.spin *= 0.4; b.spin *= 0.4;

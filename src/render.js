@@ -34,6 +34,13 @@ const GAUGE_LEN = 330;                         // 狙いゲージの長さ（ワ
 const TOP = 84, BOTTOM = 118;                  // 縦長画面のときの HUD 高さ
 
 // 回転したワールド座標系の中で、文字だけは画面に対してまっすぐ描く
+// 色に透明度をつける（#rrggbb と hsl(...) のどちらでも）
+function withAlpha(col, a) {
+  if (col.startsWith('#') && col.length === 7) return col + Math.round(a * 255).toString(16).padStart(2, '0');
+  if (col.startsWith('hsl(')) return col.replace(/\)$/, ` / ${a})`);
+  return col;
+}
+
 function utext(ctx, text, x, y) {
   ctx.save();
   ctx.translate(x, y);
@@ -447,6 +454,53 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  // ガラスのシールド（ガードストーンにかぶせる）: チーム色のうすいガラスの円盤に、白い光の筋が流れて反射する
+  drawGlass(ctx, x, y, r, col, age, face) {
+    const t = performance.now() / 1000;
+    const fade = Math.min(1, age / 0.25);
+    ctx.save();
+    // ガラス: 全体にうすく色がつき、ふちほど濃い（厚み）
+    const body = ctx.createRadialGradient(x, y, r * 0.3, x, y, r);
+    body.addColorStop(0, withAlpha(col, 0.15));
+    body.addColorStop(0.8, withAlpha(col, 0.25));
+    body.addColorStop(1, withAlpha(col, 0.55));
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    // ふち: チーム色の線と、守っている側（来る方向）に白いハイライト
+    ctx.lineWidth = 2.5; ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath(); ctx.arc(x, y, r - 4, face + Math.PI - 0.8, face + Math.PI + 0.8); ctx.stroke();
+    // 光の筋: 2.4 秒ごとに斜めに横切る（太い筋と細い筋）
+    ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.clip();
+    ctx.translate(x, y);
+    ctx.rotate(-0.7);
+    const k = ((t + (x + y) * 0.003) % 2.4) / 2.4;     // 石ごとに少しずらす
+    const bx = -r * 1.6 + k * r * 4.5;
+    const band = ctx.createLinearGradient(bx, 0, bx + r * 0.34, 0);
+    band.addColorStop(0, 'rgba(255,255,255,0)');
+    band.addColorStop(0.5, 'rgba(255,255,255,0.95)');
+    band.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = band;
+    ctx.fillRect(bx, -r, r * 0.34, r * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillRect(bx + r * 0.46, -r, r * 0.07, r * 2);
+    ctx.restore();
+    // 光が通りすぎるときに、ふちで小さくきらめく
+    if (k > 0.45 && k < 0.7) {
+      const sp = Math.sin((k - 0.45) / 0.25 * Math.PI);
+      const a = face + Math.PI - 0.55;
+      const px = x + Math.cos(a) * (r - 4), py = y + Math.sin(a) * (r - 4), L = 10 * sp;
+      ctx.save();
+      ctx.globalAlpha = fade * sp;
+      ctx.shadowColor = col; ctx.shadowBlur = 8;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(px - L, py); ctx.lineTo(px + L, py); ctx.moveTo(px, py - L); ctx.lineTo(px, py + L); ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   drawShields(ctx, c) {
     // ガードが成り立っている間ずっと表示（石の今の位置に追従）
     for (const f of c.fx.shields) {
@@ -454,6 +508,7 @@ export class Renderer {
       if (!g || !s) continue;
       const gx = g.x + g.ox, gy = g.y + g.oy, sx = s.x + s.ox, sy = s.y + s.oy;
       const pop = f.t < 0.4 ? 1 + (1 - f.t / 0.4) * 0.6 : 1;     // 出現時に少し大きく
+      this.drawGlass(ctx, gx, gy, (R + 22) * pop, teamColor(f.team), f.t, Math.atan2(sy - gy, sx - gx));
       ctx.globalAlpha = Math.min(1, f.t / 0.15) * 0.85;
       ctx.strokeStyle = teamColor(f.team);
       // 守っている円弧（来る方向＝ガードの手前側）

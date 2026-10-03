@@ -68,6 +68,7 @@ export const PHYS = {
   CURL_V0: 140,       // 低速ほどよく曲がる
   SWEEP_CURL: 0.5,    // スイープ中のカール倍率
   RESTITUTION: 0.93,
+  GUARD_MASS: 1.5,   // ガードストーン（ガードが成り立って止まっている石）の重さ。少しだけ動きにくい
   VMAX: 950,
   MAX_ANGLE: 0.2,     // rad
   DT: 1 / 240,
