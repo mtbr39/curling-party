@@ -4,7 +4,7 @@ import { LocalStore, FirebaseStore, firebaseConfigured } from './store.js';
 import { GameHost } from './host.js';
 import { GameClient } from './client.js';
 import { staggerSec, tk } from './rules.js';
-import { unlockAudio, setMuted, isMuted } from './sfx.js';
+import { unlockAudio, setMuted, isMuted, setVolume, getVolume } from './sfx.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -301,6 +301,15 @@ function initGame() {
   $('#g-mute').onclick = () => {
     setMuted(!isMuted());
     $('#g-mute').textContent = isMuted() ? 'SOUND OFF' : 'SOUND ON';
+  };
+  // 音量: スライダーで調整し、次に開いたときのために覚えておく
+  try { const v = localStorage.getItem('curling.volume'); if (v !== null) setVolume(Number(v) / 100); } catch {}
+  const vol = $('#g-vol');
+  vol.value = Math.round(getVolume() * 100);
+  vol.oninput = () => {
+    setVolume(vol.value / 100);
+    if (isMuted()) { setMuted(false); $('#g-mute').textContent = 'SOUND ON'; }
+    try { localStorage.setItem('curling.volume', vol.value); } catch {}
   };
 }
 

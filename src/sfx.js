@@ -2,8 +2,8 @@
 let ctx = null;
 let master = null;
 let noiseBuf = null;
-let reverb = null;   // 残響へ送る入口
 let muted = false;
+let volume = 0.8;   // ゲーム全体の音量（0〜1）
 
 function ac() {
   if (!ctx) {
@@ -11,29 +11,36 @@ function ac() {
     if (!C) return null;
     ctx = new C();
     master = ctx.createGain();
-    master.gain.value = 0.5;
-    master.connect(ctx.destination);
+    master.gain.value = masterGain();
+    // 音量を上げても割れないよう、最後にコンプレッサーを通す
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -10; comp.knee.value = 6; comp.ratio.value = 4;
+    comp.attack.value = 0.003; comp.release.value = 0.15;
+    master.connect(comp); comp.connect(ctx.destination);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 1.5, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    // 残響（ホールっぽい響き）: だんだん小さくなるノイズを畳み込む
-    const len = Math.floor(ctx.sampleRate * 2.4);
-    const ir = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const b = ir.getChannelData(ch);
-      for (let i = 0; i < len; i++) b[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
-    }
-    const conv = ctx.createConvolver(); conv.buffer = ir;
-    reverb = ctx.createGain(); reverb.gain.value = 0.32;
-    reverb.connect(conv); conv.connect(master);
   }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
 }
 
 export function unlockAudio() { ac(); }
-export function setMuted(m) { muted = m; if (master) master.gain.value = m ? 0 : 0.5; }
+function masterGain() { return muted ? 0 : 1.1 * volume; }
+export function setMuted(m) { muted = m; if (master) master.gain.value = masterGain(); }
 export function isMuted() { return muted; }
+export function setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master) master.gain.value = masterGain(); }
+export function getVolume() { return volume; }
+
+// 投げる音のきらきらに使うセブンスの和音（ドから数えた半音の数）。人ごとに1つ割り当てる
+// どれもハ長調の中の和音なので、何人かが同時に投げても濁らない
+const THROW_CHORDS = [
+  [0, 4, 7, 11],    // Cmaj7 ド ミ ソ シ
+  [-7, -3, 0, 4],   // Fmaj7 ファ ラ ド ミ
+  [-3, 0, 4, 7],    // Am7   ラ ド ミ ソ
+  [2, 5, 9, 12],    // Dm7   レ ファ ラ ド
+  [4, 7, 11, 14],   // Em7   ミ ソ シ レ
+];
 
 function noise(dur, freq, q, gain, type = 'bandpass') {
   const c = ac(); if (!c || muted) return;
@@ -68,34 +75,30 @@ export const sfx = {
     noise(0.08 + p * 0.1, 1800 + p * 1500, 1.2, 0.25 + p * 0.6);
     tone(140 + p * 60, 0.12 + p * 0.1, 0.2 + p * 0.4, 'triangle', 0, 0.5);
   },
-  // 投げた瞬間: 「フォーン」。ふわっと立ち上がって、残響つきで長く伸びる（人ごとに高さを変える）
-  throw(freq = 659.25) {
+  // 投げた瞬間: 氷の上を「しゅーっ」とすべっていく音に、きらきらした音がうっすら重なる（vol で他人の石は控えめに、voice で人ごとに和音を変える）
+  throw(vol = 1, voice = 0) {
     const c = ac(); if (!c || muted) return;
     const t = c.currentTime;
-    const dur = 2.4;
-    // 音色: 鳴り始めは少し明るく、だんだん丸くなる
-    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.5;
-    lp.frequency.setValueAtTime(freq * 6, t);
-    lp.frequency.exponentialRampToValueAtTime(freq * 1.6, t + 1.2);
-    // 音量: ふわっと（約0.06秒で）ふくらんで、ゆっくり消える
-    const env = c.createGain();
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.exponentialRampToValueAtTime(0.22, t + 0.06);
-    env.gain.exponentialRampToValueAtTime(0.09, t + 0.6);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    lp.connect(env); env.connect(master); env.connect(reverb);
-    // 重ねる音: 基音 + わずかにずらした音（揺らぎ） + 1オクターブ下（厚み） + 1オクターブ上（きらめき）
-    const voice = (f, type, gain) => {
-      const o = c.createOscillator(); o.type = type; o.frequency.value = f;
-      const g = c.createGain(); g.gain.value = gain;
-      o.connect(g); g.connect(lp);
-      o.start(t); o.stop(t + dur + 0.1);
-    };
-    voice(freq, 'sine', 0.55);
-    voice(freq * 1.004, 'triangle', 0.25);
-    voice(freq * 0.996, 'triangle', 0.25);
-    voice(freq / 2, 'sine', 0.3);
-    voice(freq * 2, 'sine', 0.06);
+    // しゅーっ: ふわっと入って、高さが上がってから下がり、すーっと消える
+    const src = c.createBufferSource(); src.buffer = noiseBuf;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.4;
+    f.frequency.setValueAtTime(500, t);
+    f.frequency.exponentialRampToValueAtTime(1600, t + 0.35);
+    f.frequency.exponentialRampToValueAtTime(700, t + 1.1);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22 * vol, t + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t, Math.random() * 0.3); src.stop(t + 1.2);
+    // 手を離す、やわらかい「トン」
+    tone(196, 0.16, 0.2 * vol, 'triangle', 0, 0.7);
+    // きらきら: セブンスの和音を高い音でうっすら上っていき、こだまのように小さくくり返す
+    THROW_CHORDS[voice % THROW_CHORDS.length].forEach((st, i) => {
+      const fr = 1046.5 * Math.pow(2, st / 12);
+      tone(fr, 0.45, 0.13 * vol, 'triangle', 0.08 + i * 0.09);
+      tone(fr, 0.45, 0.05 * vol, 'triangle', 0.3 + i * 0.09);
+    });
   },
   sweep() { noise(0.09, 3200, 0.7, 0.08, 'highpass'); },
   out() { tone(320, 0.25, 0.12, 'sine', 0, 0.4); },

@@ -240,20 +240,18 @@ export class GameClient {
   }
   showToast(text) { this.toast = { text, t: 0, max: 2.2 }; }
 
-  // 投げる音の高さ: 参加順に「ドレミソラ」の音階から割り当てる（重なってもきれいに響く）
-  pitchFor(pid) {
+  // 投げる音の和音: 参加順に割り当てる（重なってもきれいに響くよう sfx 側で選んである）
+  voiceFor(pid) {
     const ids = Object.keys(this.players).sort((a, b) => (this.players[a].joinedAt || 0) - (this.players[b].joinedAt || 0));
-    const i = Math.max(0, ids.indexOf(pid));
-    const scale = [523.25, 587.33, 659.25, 783.99, 880.0];   // C5 D5 E5 G5 A5
-    return scale[i % scale.length] * (i >= scale.length ? 2 : 1);
+    return Math.max(0, ids.indexOf(pid));
   }
 
-  // 他の人の石が投げられたら、その人の高さで鳴らす（自分の石は投げた瞬間に鳴らしている）
+  // 他の人の石が投げられたら控えめに鳴らす（自分の石は投げた瞬間に鳴らしている）
   soundNewStones() {
     for (const s of this.world.stones) {
       if (this.seenStones.has(s.id)) continue;
       this.seenStones.add(s.id);
-      if (s.owner && s.owner !== this.pid && s.moving && !s.out) sfx.throw(this.pitchFor(s.owner));
+      if (s.owner && s.owner !== this.pid && s.moving && !s.out) sfx.throw(0.6, this.voiceFor(s.owner));
     }
   }
 
@@ -451,7 +449,7 @@ export class GameClient {
     }
     const f = this.figs[this.pid];
     if (f) f.lungeT = 0;
-    sfx.throw(this.pitchFor(this.pid));
+    sfx.throw(1, this.voiceFor(this.pid));
   }
 
   // ------------------------------------------------------------ フレーム
