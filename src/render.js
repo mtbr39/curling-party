@@ -50,8 +50,11 @@ function utext(ctx, text, x, y) {
 }
 
 export class Renderer {
-  constructor(canvas) {
+  // topBar: 縦長画面で上に重なる HTML のバーの高さ（ゲーム画面のボタン列）。点数表をその下から描く
+  constructor(canvas, { topBar = 0 } = {}) {
     this.cv = canvas;
+    this.topBar = topBar;
+    this.padBottom = 0;   // スマホの操作ボタン用に、縦長画面のシートの下に空ける高さ
     this.ctx = canvas.getContext('2d');
     this.resize();
     this._onResize = () => this.resize();
@@ -75,8 +78,8 @@ export class Renderer {
       this.panelR = Math.max(220, Math.min(320, w * 0.24));
       this.area = { x: this.panelL, y: 0, w: w - this.panelL - this.panelR, h };
     } else {
-      const top = Math.max(TOP, this.topPx || 0);
-      this.area = { x: 0, y: top, w, h: h - top - BOTTOM };
+      const top = Math.max(TOP, this.topPx || 0) + this.topBar;
+      this.area = { x: 0, y: top, w, h: h - top - BOTTOM - this.padBottom };
     }
     const a = this.area;
     const vw = SHEET.W + SIDE * 2;
@@ -124,7 +127,7 @@ export class Renderer {
       this.drawStatus(ctx, c, 28, this.h - 250, this.panelL - 48);
       this.drawHelp(ctx, this.w - this.panelR + 24, this.h - 150);
     } else {
-      this.drawScores(ctx, c, 16, 22, this.w - 32, true);
+      this.drawScores(ctx, c, 16, 22 + this.topBar, this.w - 32, true);
       this.drawStatus(ctx, c, 16, this.h - BOTTOM + 14, this.w - 32);
     }
     this.drawSling(ctx, c);
@@ -694,7 +697,7 @@ export class Renderer {
       // 札（画面で石の左）。プラスの回転は右へ、マイナスは左へ曲がる
       const pct = Math.round(Math.abs(a.spin) * 100);
       const txt = on ? `${a.spin > 0 ? '↻ 右に曲がる' : '↺ 左に曲がる'} ${pct}%` : '回転なし';
-      const sub = 'ホイール / Q E';
+      const sub = c.touch ? '左下の ↺ ↻ ボタン' : 'ホイール / Q E';
       ctx.save();
       ctx.translate(x, y - R - 16);
       ctx.rotate(Math.PI / 2);          // 画面で横書き（右端を石のそばに）

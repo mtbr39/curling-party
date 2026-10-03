@@ -24,7 +24,7 @@ export class GameClient {
     this.slowAmt = 0;     // スロー演出の濃さ（0〜1、描画用）
     this.inSlow = false;
     this.onFinal = onFinal;
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, { topBar: practice ? 0 : 40 });
     this.ownWorld = new World();
     this.world = this.ownWorld;
     this.host = null;
@@ -323,6 +323,7 @@ export class GameClient {
     addEventListener('keydown', this.h.key);
     addEventListener('keyup', this.h.keyup);
     addEventListener('blur', this.h.blur);
+    this.setupTouch();
   }
   unbindInput() {
     const cv = this.canvas;
@@ -336,6 +337,71 @@ export class GameClient {
     removeEventListener('keydown', this.h.key);
     removeEventListener('keyup', this.h.keyup);
     removeEventListener('blur', this.h.blur);
+    clearInterval(this.touchRepeat);
+    this.touchEl?.remove();
+    this.touchEl = null;
+  }
+
+  // ------------------------------------------------------------ スマホ（タッチ）用の操作
+  // 回転（↺ ↻、長押しで連続。まん中を押すと 0 に戻す）・スイープ（押している間）・軌跡の表示をボタンで。
+  // 位置は、投げる位置のあたりを押して横になぞると動く
+  setupTouch() {
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    if (!coarse && !(navigator.maxTouchPoints > 0)) return;
+    this.touch = true;
+    const el = document.createElement('div');
+    el.className = 'touch-ctl';
+    el.innerHTML = `
+      <div class="tc-spin">
+        <button data-k="spinL" aria-label="左に曲がる回転">↺</button>
+        <button data-k="spin0" class="tc-val" aria-label="回転を0に">0</button>
+        <button data-k="spinR" aria-label="右に曲がる回転">↻</button>
+        <button data-k="trail" class="tc-small">軌跡</button>
+      </div>
+      <button data-k="sweep" class="tc-sweep">SWEEP</button>`;
+    this.canvas.parentElement.appendChild(el);
+    this.touchEl = el;
+    this.renderer.padBottom = 64;
+    this.renderer.resize();
+    const stop = () => { clearInterval(this.touchRepeat); clearTimeout(this.touchRepeat); this.touchRepeat = null; };
+    const act = k => {
+      if (k === 'spinL') this.adjustSpin(-0.1);
+      else if (k === 'spinR') this.adjustSpin(0.1);
+      else if (k === 'spin0') this.aim.spin = 0;
+      else if (k === 'trail') { this.showShots = !this.showShots; this.showToast(this.showShots ? '自分の軌跡: 表示' : '自分の軌跡: 非表示'); }
+    };
+    for (const b of el.querySelectorAll('button')) {
+      const k = b.dataset.k;
+      b.addEventListener('contextmenu', e => e.preventDefault());
+      b.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        unlockAudio();
+        try { b.setPointerCapture?.(e.pointerId); } catch {}
+        if (k === 'sweep') { this.setSweep(true); b.classList.add('on'); return; }
+        act(k);
+        // 回転は長押しで続けて変わる
+        if (k === 'spinL' || k === 'spinR') {
+          stop();
+          this.touchRepeat = setTimeout(() => { this.touchRepeat = setInterval(() => act(k), 90); }, 350);
+        }
+      });
+      const up = () => { if (k === 'sweep') { this.setSweep(false); b.classList.remove('on'); } else stop(); };
+      b.addEventListener('pointerup', up);
+      b.addEventListener('pointercancel', up);
+    }
+  }
+
+  // タッチ用ボタンの表示を今の状態に合わせる（回転の値・縦長画面では下の HUD の上に置く）
+  updateTouch() {
+    const el = this.touchEl;
+    if (!el) return;
+    const sp = Math.round(this.aim.spin * 100);
+    const txt = sp === 0 ? '0' : (sp > 0 ? '↻' : '↺') + Math.abs(sp);
+    const v = el.querySelector('.tc-val');
+    if (v.textContent !== txt) v.textContent = txt;
+    // 縦長画面: 下の HUD のすぐ上（空けてある場所）。横長画面: 右下にまとめる
+    el.classList.toggle('land', this.renderer.land);
+    el.hidden = this.game?.roster?.[this.pid] == null;
   }
 
   clampY(y) { return Math.max(R + 3, Math.min(SHEET.W - R - 3, y)); }
@@ -343,6 +409,18 @@ export class GameClient {
   onPointerMove(e) {
     const a = this.aim;
     this.cursor = this.renderer.toWorld(e.clientX, e.clientY);   // 投げ終わった後、自分の人間が歩いていく先
+    if (e.pointerType !== 'mouse') {
+      if (this.placing) { a.y = this.clampY(this.cursor.y); return; }
+      // 投げる位置のあたりで押して、最初に横へ動いたら「位置を動かす」に切りかえる
+      if (a.dragging && a.touchZone && !a.decided) {
+        const mx = e.clientX - a.pressX, my = e.clientY - a.pressY;
+        if (Math.hypot(mx, my) > 10) {
+          a.decided = true;
+          if (Math.abs(mx) > Math.abs(my) * 1.2) { a.dragging = false; this.placing = true; a.y = this.clampY(this.cursor.y); return; }
+        }
+      }
+      if (!a.dragging) return;   // タッチはホバーがないので、押していないときは位置を動かさない
+    }
     if (a.dragging) {
       const k = e.shiftKey ? 0.25 : 1;
       a.fine = e.shiftKey;
@@ -367,21 +445,24 @@ export class GameClient {
     if (e.button !== 0) { this.cancelDrag(); return; }
     const g = this.game;
     if (!g || g.roster?.[this.pid] == null) return;
-    this.canvas.setPointerCapture?.(e.pointerId);
+    try { this.canvas.setPointerCapture?.(e.pointerId); } catch {}
     this.setSweep(false);
-    Object.assign(this.aim, { dragging: true, dx: 0, dy: 0, valid: false, power: 0, pressX: e.clientX, pressY: e.clientY, pressAt: this.store.serverNow(),
+    // タッチで投げる位置のあたり（シートの手前の端より下）を押したら、横になぞって位置を動かせる
+    const touchZone = e.pointerType !== 'mouse' && this.renderer.toWorld(e.clientX, e.clientY).x < SHEET.SPAWN_X + R * 2.5;
+    Object.assign(this.aim, { touchZone, decided: false, dragging: true, dx: 0, dy: 0, valid: false, power: 0, pressX: e.clientX, pressY: e.clientY, pressAt: this.store.serverNow(),
       pressT: performance.now(), seed: [0, 1, 2, 3].map(() => Math.random() * Math.PI * 2) });
     this.px = e.clientX; this.py = e.clientY;
   }
 
   onPointerUp(e) {
     const a = this.aim;
+    if (this.placing) { this.placing = false; return; }
     if (!a.dragging) return;
     a.dragging = false;
     if (a.valid) this.tryThrow();
   }
 
-  cancelDrag() { this.aim.dragging = false; }
+  cancelDrag() { this.aim.dragging = false; this.placing = false; }
 
   updateDrag() {
     const a = this.aim;
@@ -546,6 +627,7 @@ export class GameClient {
     this.updateFx(dt);
     this.sendAim(t);
     this.tickSounds();
+    this.updateTouch();
     this.renderer.draw(this);
   }
 

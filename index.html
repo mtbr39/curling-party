@@ -93,8 +93,11 @@
   <div class="g-top">
     <span id="g-room"></span>
     <button id="g-mute" class="mini ghost">SOUND ON</button>
+    <button id="g-volbtn" class="mini ghost" aria-expanded="false">音量</button>
+    <span class="g-vols">
     <label class="vol">SE <input id="g-vol" type="range" min="0" max="100" step="5" value="50" aria-label="効果音の音量"></label>
     <label class="vol">BGM <span id="g-eq" class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span> <input id="g-bgm" type="range" min="0" max="100" step="5" value="50" aria-label="BGMの音量"></label>
+    </span>
     <button class="mini ghost" data-manual>説明書</button>
     <button id="g-tolobby" class="mini ghost" hidden>ロビーへ</button>
     <button id="g-leave" class="mini ghost">退出</button>
@@ -211,6 +214,14 @@
         <tr><th>スイープ</th><td><kbd>Space</kbd> 長押し</td></tr>
         <tr><th>キャンセル</th><td>右クリック ／ <kbd>Esc</kbd></td></tr>
         <tr><th>自分の軌跡</th><td><kbd>T</kbd> で表示／非表示</td></tr>
+      </table>
+      <h3 style="margin-top:16px">スマホ・タブレット</h3>
+      <table class="m-keys">
+        <tr><th>位置（左右）</th><td>投げる位置のあたり（シートの手前）を押して、横になぞる</td></tr>
+        <tr><th>投げる</th><td>画面を押して<b>下へ引き</b>、離す（引かずに離せばキャンセル）</td></tr>
+        <tr><th>回転</th><td>左下の ↺ ↻（長押しで連続、まん中を押すと 0）</td></tr>
+        <tr><th>スイープ</th><td>右下の SWEEP を押している間</td></tr>
+        <tr><th>自分の軌跡</th><td>左下の「軌跡」</td></tr>
       </table>
     </section>
   </div>

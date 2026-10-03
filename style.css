@@ -230,4 +230,23 @@ h2 { font: 800 12px var(--mono); letter-spacing: .2em; margin: 0 0 12px; }
   .g-top #g-room { display: none; }
   .g-top button.mini { padding: 3px 7px; font-size: 11px; }
   .g-top .vol input { width: 52px; }
+  .g-top { left: 8px; justify-content: flex-end; }
+  #game .g-top .g-vols { display: none; }
+  #game .g-top.vols-open .g-vols { display: flex; position: absolute; top: 30px; right: 0; flex-direction: column; align-items: flex-end; gap: 8px; padding: 10px 12px; background: var(--paper); border: 2px solid var(--ink); z-index: 6; }
+  .g-top.vols-open .vol input { width: 120px; }
+  #game .g-top #g-volbtn { display: inline-block; }
 }
+.g-top .g-vols { display: contents; }
+.g-top #g-volbtn { display: none; }
+
+/* ---------- スマホ（タッチ）用の操作ボタン ---------- */
+.touch-ctl { position: absolute; left: 12px; right: 12px; bottom: 122px; height: 58px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 5; }
+.touch-ctl[hidden] { display: none; }
+.touch-ctl button { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.tc-spin { display: flex; gap: 6px; align-items: center; }
+.tc-spin button { width: 44px; height: 44px; padding: 0; font: 800 20px var(--sans); background: rgba(251,251,249,.9); border: 2px solid var(--ink); }
+.tc-spin .tc-val { width: 58px; font: 800 13px var(--mono); }
+.tc-spin .tc-small { width: auto; padding: 0 10px; font: 700 12px var(--sans); border-color: var(--line); }
+.tc-sweep { width: 58px; height: 58px; border-radius: 50%; padding: 0; font: italic 900 15px var(--sans); color: var(--paper); background: var(--ink); border: 2px solid var(--ink); }
+.touch-ctl.land { left: auto; bottom: 16px; gap: 14px; justify-content: flex-end; }
+.tc-sweep.on { background: var(--accent); border-color: var(--accent); transform: scale(.94); }

@@ -350,6 +350,11 @@ function initGame() {
     $('#g-mute').textContent = m ? 'SOUND OFF' : 'SOUND ON';
   };
   $('#g-mute').onclick = () => mute(!isMuted());
+  // 狭い画面: 音量スライダーは「音量」ボタンでひらく／とじる
+  $('#g-volbtn').onclick = () => {
+    const open = $('.g-top').classList.toggle('vols-open');
+    $('#g-volbtn').setAttribute('aria-expanded', String(open));
+  };
   // 音量: 効果音と BGM を別々のスライダーで調整し、次に開いたときのために覚えておく
   const slider = (sel, key, set, get) => {
     try { const v = localStorage.getItem(key); if (v !== null) set(Number(v) / 100); } catch {}

@@ -55,11 +55,11 @@ export class GameHost {
       s.onChildAdded('throws', (k, v) => this.onThrow(k, v)),
     );
     this.last = performance.now();
-    this.timer = setInterval(() => this.tick(), 1000 / 60);
+    this.timer = startTicker(() => this.tick(), 1000 / 60);
   }
 
   stop() {
-    clearInterval(this.timer);
+    this.timer?.stop();
     for (const u of this.unsubs) try { u(); } catch {}
     this.unsubs = [];
   }
@@ -500,6 +500,24 @@ export function decodeStone(a) {
   const s = makeStone({ id, team, owner: owner || null, x, y, vx, vy, spin, angle, out, hit: flags & 1, sweep: flags & 2, rested: flags & 4, cause: cause || null });
   s.moving = !!(flags & 8) && (vx !== 0 || vy !== 0);
   return s;
+}
+
+// ホストのループ用タイマー。裏に回ったタブではブラウザが setInterval を大きく間引く
+// （長く裏にあると 1 分に 1 回ほど）ので、間引かれない Web Worker から合図を送ってもらう
+function startTicker(fn, ms) {
+  if (typeof Worker === 'function' && typeof Blob === 'function') {
+    try {
+      const src = 'let id; onmessage = e => { clearInterval(id); id = setInterval(() => postMessage(0), e.data); };';
+      const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      URL.revokeObjectURL(url);
+      w.onmessage = () => fn();
+      w.postMessage(ms);
+      return { stop() { w.terminate(); } };
+    } catch {}
+  }
+  const id = setInterval(fn, ms);
+  return { stop() { clearInterval(id); } };
 }
 
 export function normalizeGame(g) {
