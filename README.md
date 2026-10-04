@@ -17,6 +17,15 @@ npm start            # = npx http-server . -c-1 -p 8080 -o
 2. **Realtime Database** を作成（ロケーションはどこでも可）
 3. プロジェクトの設定 → マイアプリ → ウェブアプリを追加し、表示された設定値を `src/firebase-config.js` に貼る（`databaseURL` 必須）
 4. Realtime Database の「ルール」に `database.rules.json` の内容を貼って公開
+5. **Authentication** → ログイン方法で「**匿名**」を有効にする（アクティビティログ用。無効でもゲームは遊べるが、きろくは残らない）
+
+### アクティビティログ（きろく）
+
+起動時に Firebase の匿名認証でログインし（同じブラウザなら同じユーザー）、`users/{uid}/` に自分のプレイを記録する。オフラインの CPU 戦も記録する（Firebase の設定は必要）。ロビーの練習シートは記録しない。タイトル画面の「きろく」で見られる。
+
+- `users/{uid}/log/{pushKey}` … 1件ずつ `{ type, t, ... }`。`type` は `game`（ゲーム開始。CPU数・人数・オンラインか）、`result`（順位・得点）、`takeout`（ダブルなら同じ記録の `n` が増える）、`guard`、`button`、`steal`・`bigend`（自分のチームの得点）
+- `users/{uid}/stats` … 回数の合計（`games` / `cpuGames` / `onlineGames` / `wins` と、上の技ごと）
+- 書くのは本人のブラウザだけ（ルールで `auth.uid === $uid` に限っている）
 
 > ルールは `rooms/` 以下を誰でも読み書きできる最小構成。公開する場合は Firebase Authentication（匿名認証）を足してルールを絞ること。
 > 終わったルームのデータは自動削除されないので、たまにコンソールから `rooms` を消す。

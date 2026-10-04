@@ -2,11 +2,12 @@
 // 非ホストは自前で物理を回して予測し、ホストのスナップショットで補正する。
 import { SHEET, STONE_R, PHYS, RULES, SPEED, teamColor, teamName, powerToSpeed } from './config.js';
 import { World, makeStone, runSolo } from './physics.js';
-import { throwState, doneCount, deadlineFor, slotSec, isGuarding, isLastShot, judgeTime } from './rules.js';
+import { throwState, doneCount, deadlineFor, slotSec, isGuarding, isLastShot, judgeTime, tk } from './rules.js';
 import { decodeStone, normalizeGame } from './host.js';
 import { Renderer, LANE } from './render.js';
 import { sfx, unlockAudio } from './sfx.js';
 import { startBgm, setBgmSlow, setBgmHush } from './bgm.js';
+import { logActivity } from './activity.js';
 
 const R = STONE_R;
 const MAX_DRAG = 280; // px
@@ -14,8 +15,10 @@ const FIG_X = SHEET.SPAWN_X - 50;
 const WALK_SPEED = 240;   // 投げ終わった人がカーソルへ歩く速さ（ワールド単位/秒）
 
 export class GameClient {
-  constructor({ store, pid, canvas, onFinal, practice = false }) {
-    this.practice = practice;   // ロビーの練習シート（BGM は触らない）
+  constructor({ store, pid, canvas, onFinal, practice = false, room = null, online = false }) {
+    this.practice = practice;   // ロビーの練習シート（BGM は触らない・アクティビティログに残さない）
+    this.room = room; this.online = online;
+    this.takeoutLogs = {};      // ダブルテイクアウトなどは同じ記録を書きかえる
     this.store = store;
     this.pid = pid;
     this.canvas = canvas;
@@ -126,6 +129,7 @@ export class GameClient {
     if (!prev || prev.end !== g.end) {
       this.pending = [];
       this.myShots = [];   // 自分の軌跡はエンドごとにリセット
+      this.takeoutLogs = {};
       this.seenStones = new Set();
       this.trails.clear();
       this.fx.shields = [];
@@ -137,6 +141,50 @@ export class GameClient {
     if (prev?.phase !== g.phase) {
       if (g.phase === 'result') sfx.score();
       if (g.phase === 'final' && this.onFinal) this.onFinal();
+    }
+    this.logGame(prev, g);
+  }
+
+  // アクティビティログ: ゲームを始めた／終わった（自分が参加しているときだけ）
+  logGame(prev, g) {
+    if (this.practice || g.roster?.[this.pid] == null) return;
+    const ids = Object.keys(g.roster);
+    const cpus = ids.filter(p => this.players[p]?.bot ?? p.startsWith('cpu')).length;
+    const info = { online: this.online, humans: ids.length - cpus, cpus, mode: this.meta?.settings?.mode || 'solo', ends: g.totalEnds };
+    if (g.end === 1 && g.phase === 'play' && prev?.endStartAt !== g.endStartAt) {
+      const stats = ['games', ...(cpus ? ['cpuGames'] : []), ...(this.online ? ['onlineGames'] : [])];
+      logActivity('game', info, { once: `${this.room}|${g.endStartAt}|game`, stats });
+    }
+    if (g.phase === 'final' && prev?.phase !== 'final') {
+      const me = tk(g.roster[this.pid]);
+      const score = g.scores[me] || 0;
+      const others = Object.entries(g.scores).filter(([k]) => k !== me).map(([, v]) => v || 0);
+      const best = others.length ? Math.max(...others) : 0;
+      const rank = 1 + others.filter(v => v > score).length;
+      const tie = rank === 1 && others.includes(score);
+      logActivity('result', { ...info, score, best, rank, tie }, {
+        once: `${this.room}|${g.endStartAt}|result`, stats: rank === 1 && !tie ? ['wins'] : [],
+      });
+    }
+  }
+
+  // アクティビティログ: 自分の技・自分のチームの得点
+  logEvent(e) {
+    if (this.practice) return;
+    const once = `${this.room}|${e.type}|${e.t}`;
+    switch (e.type) {
+      case 'takeout':
+        if (e.owner !== this.pid) return;
+        this.takeoutLogs[e.cause] = logActivity('takeout', { n: e.n }, { once: `${once}|${e.n}`, replace: this.takeoutLogs[e.cause] });
+        break;
+      case 'guard': case 'button':
+        if (e.owner === this.pid) logActivity(e.type, {}, { once });
+        break;
+      case 'steal': case 'bigend': {
+        const myTeam = this.game?.roster?.[this.pid];
+        if (myTeam != null && e.team === myTeam) logActivity(e.type, { points: e.points }, { once });
+        break;
+      }
     }
   }
 
@@ -170,6 +218,7 @@ export class GameClient {
 
   onEvent(e) {
     if (!e || e.t < this.joinedAt - 1500) return;
+    this.logEvent(e);
     const owner = this.players[e.owner]?.name || '';
     const col = teamColor(e.team);
     switch (e.type) {

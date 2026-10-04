@@ -95,6 +95,16 @@ h1 span { color: var(--paper); -webkit-text-stroke: 2px var(--ink); }
 /* 「実際の競技では」の豆知識: ゲームには関係ないので灰色で */
 .m-body .real { color: var(--mute); font-size: 13px; border-left: 3px solid var(--line); padding-left: 10px; }
 .m-body .real::before { content: "実際の競技では　"; font-weight: 700; }
+/* ---------- きろく ---------- */
+.act-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; padding-top: 16px; }
+.act-stats div { border: 1.5px solid var(--ink); padding: 6px 8px; }
+.act-stats b { display: block; font: 900 22px/1.1 var(--sans); }
+.act-stats span { font: 700 10px var(--mono); letter-spacing: .06em; color: var(--mute); }
+.act-log { list-style: none; margin: 16px 0 0 !important; padding: 0 !important; }
+.act-log li { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; margin: 0 !important; border-top: 1px solid var(--line); }
+.act-log time { flex: none; width: 92px; font: 500 11px var(--mono); color: var(--mute); }
+.act-log .win { font-weight: 800; }
+
 .m-body dl { margin: 0 0 8px; }
 .m-body dt { font-weight: 800; }
 .m-body dd { margin: 0 0 8px; }

@@ -1,7 +1,7 @@
 // データ同期層。Firebase Realtime Database と、オフライン用のメモリ実装を同じインターフェースで扱う。
 import { firebaseConfig } from './firebase-config.js';
 
-const FB_VER = '10.12.2';
+export const FB_VER = '10.12.2';
 
 export function firebaseConfigured() {
   return !!firebaseConfig && !!firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('YOUR_')
@@ -89,13 +89,13 @@ export class LocalStore {
 
 // ---------------------------------------------------------------- Firebase
 let fbModsPromise = null;
-function loadFirebase() {
+export function loadFirebase() {
   fbModsPromise ||= Promise.all([
     import(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-app.js`),
     import(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-database.js`),
   ]).then(([app, db]) => {
     const fapp = app.initializeApp(firebaseConfig);
-    return { db: db.getDatabase(fapp), m: db };
+    return { app: fapp, db: db.getDatabase(fapp), m: db };
   });
   return fbModsPromise;
 }

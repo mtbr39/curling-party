@@ -8,6 +8,7 @@ import { unlockAudio, setMuted, isMuted, setVolume, getVolume } from './sfx.js';
 import { playFinale } from './finale.js';
 import { startPractice } from './practice.js';
 import { fadeOutBgm, stopBgm, setBgmVolume, getBgmVolume, setBgmMuted, onBgmState } from './bgm.js';
+import { initActivity, readActivity, describe } from './activity.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -291,7 +292,7 @@ function startGameView() {
   show('game');
   $('#g-tolobby').hidden = S.meta.hostId !== pid;   // ロビーへ戻すのはホストだけ
   if (!S.client) {
-    S.client = new GameClient({ store: S.store, pid, canvas: $('#cv'), onFinal: () => renderFinal() });
+    S.client = new GameClient({ store: S.store, pid, canvas: $('#cv'), onFinal: () => renderFinal(), room: S.code, online: S.online });
     S.client.setHost(S.host);
     S.client.start();
     $('#g-scorebtn').setAttribute('aria-pressed', 'false');
@@ -341,6 +342,30 @@ function initManual() {
   });
 }
 
+// きろく: 匿名ログインできたらタイトルにボタンを出す。開くたびに読み直す
+function initActivityView() {
+  const dlg = $('#activity');
+  initActivity().then(r => { if (r) $('#btn-activity').hidden = false; });
+  $('#activity-close').onclick = () => dlg.close();
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  $('#btn-activity').onclick = async () => {
+    $('#act-stats').innerHTML = '';
+    $('#act-log').innerHTML = '<li class="muted">読み込み中…</li>';
+    dlg.showModal();
+    let r = null;
+    try { r = await readActivity(); } catch (e) { console.error(e); }
+    if (!r) { $('#act-log').innerHTML = '<li class="muted">きろくを読み込めませんでした</li>'; return; }
+    const st = r.stats;
+    const tiles = [['games', 'ゲーム'], ['wins', '勝ち'], ['cpuGames', 'CPU戦'], ['onlineGames', 'オンライン'],
+      ['takeout', 'テイクアウト'], ['guard', 'ガード'], ['button', 'ボタン'], ['steal', 'スティール'], ['bigend', 'ビッグエンド']];
+    $('#act-stats').innerHTML = tiles.map(([k, label]) => `<div><b>${st[k] || 0}</b><span>${label}</span></div>`).join('');
+    const fmt = t => new Date(t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    $('#act-log').innerHTML = r.log.map(e => `<li${e.type === 'result' && e.rank === 1 && !e.tie ? ' class="win"' : ''}>
+      <time>${e.t ? fmt(e.t) : ''}</time><span>${esc(describe(e))}</span></li>`).join('')
+      || '<li class="muted">まだきろくがありません。CPU戦をしてみよう</li>';
+  };
+}
+
 function initGame() {
   $('#g-leave').onclick = () => { if (confirm('ルームから退出しますか？')) leaveRoom(); };
   // ホストだけ: ゲームをやめて、全員をロビー（設定・チーム決めの画面）へ戻す
@@ -382,6 +407,7 @@ initTitle();
 initLobby();
 initGame();
 initManual();
+initActivityView();
 show('title');
 
 // キャンバスで使う日本語フォントを先に読み込んでおく（技の演出の文字用）

@@ -42,6 +42,7 @@
     <button id="btn-local" class="ghost wide">オフラインで練習（CPU対戦）</button>
 
     <button class="ghost wide" data-manual>説明書 ― あそびかたとカーリングのこと</button>
+    <button id="btn-activity" class="ghost wide" hidden>きろく ― これまでのプレイ</button>
   </div>
   <footer class="credit"><span class="cr-sm">made by</span><span class="cr-name">Kiahi</span><span class="cr-sm">with Claude Code</span></footer>
 </section>
@@ -225,6 +226,18 @@
         <tr><th>自分の軌跡</th><td>左下の「軌跡」</td></tr>
       </table>
     </section>
+  </div>
+</dialog>
+
+<!-- きろく（アクティビティログ） -->
+<dialog id="activity" class="manual" aria-labelledby="activity-title">
+  <div class="m-head">
+    <h2 id="activity-title">きろく</h2>
+    <button id="activity-close" class="mini ghost">閉じる</button>
+  </div>
+  <div class="m-body">
+    <div id="act-stats" class="act-stats"></div>
+    <ol id="act-log" class="act-log"></ol>
   </div>
 </dialog>
 
